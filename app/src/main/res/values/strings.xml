@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RAYKA Buoy Gateway</string>
+
+    <string name="consent_title">رضایت و شفافیت</string>
+    <string name="consent_body">این اپ فقط پیامک‌هایی را که با پیشوند مشخص‌شده (مثلاً RAYKA:) شروع می‌شوند از سیم‌کارت‌هایی که خودتان انتخاب می‌کنید می‌خواند و به سرور Supabase و/یا سرور محلی خودتان می‌فرستد.\n\nبقیه‌ی پیامک‌های شخصی گوشی هرگز خوانده یا ارسال نمی‌شوند. تا وقتی سرویس را روشن نکنید هیچ پیامکی پردازش نمی‌شود، و هر وقت سرویس فعال باشد یک نوتیفیکیشن دائمی نشان داده می‌شود.</string>
+    <string name="consent_agree">متوجه شدم و موافقم</string>
+
+    <string name="label_sms_prefix">پیشوند پیامک‌های بویه</string>
+    <string name="label_sim_selection">سیم‌کارت‌های تحت نظارت</string>
+    <string name="label_cloud_url">آدرس Supabase Edge Function</string>
+    <string name="label_cloud_secret">رمز مشترک ابری (X-Tasker-Secret)</string>
+    <string name="label_local_url">آدرس سرور محلی (اختیاری)</string>
+    <string name="label_local_secret">رمز مشترک محلی (اختیاری)</string>
+    <string name="label_act_as_local_server">خود این گوشی سرور محلی باشد</string>
+    <string name="label_local_port">پورت سرور محلی این گوشی</string>
+
+    <string name="btn_save_settings">ذخیره تنظیمات</string>
+    <string name="btn_start_service">روشن کردن دروازه</string>
+    <string name="btn_stop_service">خاموش کردن دروازه</string>
+    <string name="status_off">وضعیت: خاموش</string>
+    <string name="status_on">وضعیت: روشن — در حال گوش‌دادن به پیامک‌ها</string>
+    <string name="label_pending_count">پیام‌های در صفِ ارسال به ابر:</string>
+    <string name="label_last_sync">آخرین ارسال موفق به ابر:</string>
+
+    <string name="notif_channel_name">دروازه‌ی تله‌متری بویه</string>
+    <string name="notif_text">در حال گوش‌دادن به پیامک‌های بویه و ارسال به سرور شما</string>
+</resources>

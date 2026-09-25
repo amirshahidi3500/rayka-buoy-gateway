@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- بخش رضایت -->
+        <LinearLayout
+            android:id="@+id/consentSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFF3CD"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/consent_title"
+                android:textStyle="bold"
+                android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/consent_body" />
+
+            <Button
+                android:id="@+id/btnAgree"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/consent_agree" />
+        </LinearLayout>
+
+        <!-- بخش اصلی تنظیمات -->
+        <LinearLayout
+            android:id="@+id/mainSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_sms_prefix"
+                android:layout_marginTop="12dp" />
+            <EditText
+                android:id="@+id/editSmsPrefix"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="RAYKA:" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_sim_selection"
+                android:layout_marginTop="16dp"
+                android:textStyle="bold" />
+            <LinearLayout
+                android:id="@+id/simListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_cloud_url"
+                android:layout_marginTop="16dp" />
+            <EditText
+                android:id="@+id/editCloudUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="https://xxxx.supabase.co/functions/v1/ingest-buoy-sms"
+                android:inputType="textUri" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_cloud_secret"
+                android:layout_marginTop="12dp" />
+            <EditText
+                android:id="@+id/editCloudSecret"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_local_url"
+                android:layout_marginTop="16dp" />
+            <EditText
+                android:id="@+id/editLocalUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="http://192.168.1.50:8787/ingest"
+                android:inputType="textUri" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_local_secret"
+                android:layout_marginTop="12dp" />
+            <EditText
+                android:id="@+id/editLocalSecret"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchActAsLocalServer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/label_act_as_local_server" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/label_local_port"
+                android:layout_marginTop="8dp" />
+            <EditText
+                android:id="@+id/editLocalPort"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="8787"
+                android:inputType="number" />
+
+            <Button
+                android:id="@+id/btnSaveSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/btn_save_settings" />
+
+            <TextView
+                android:id="@+id/textStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:textStyle="bold"
+                android:text="@string/status_off" />
+
+            <TextView
+                android:id="@+id/textPendingCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:id="@+id/textLastSync"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <Button
+                android:id="@+id/btnStartStop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/btn_start_service" />
+
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

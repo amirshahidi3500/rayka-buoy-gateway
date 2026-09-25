@@ -1,0 +1,2476 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAYKA Fleet & Marine Buoy Control System</title>
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Leaflet CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Supabase JS client (auth + database + realtime) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <style>
+        :root {
+            --bg-main: #0f172a;
+            --card-bg: #1e293b;
+            --border-color: #334155;
+            --text-color: #f8fafc;
+            --subtext-color: #94a3b8;
+            --accent: #0284c7;
+        }
+
+        [data-bs-theme="light"] {
+            --bg-main: #f1f5f9;
+            --card-bg: #ffffff;
+            --border-color: #cbd5e1;
+            --text-color: #0f172a;
+            --subtext-color: #64748b;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-color);
+            font-family: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .status-ok { color: #10b981; }
+        .status-danger { color: #ef4444; }
+        .metric-val { font-size: 1.5rem; font-weight: bold; }
+
+        .offcanvas {
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            border-left: 1px solid var(--border-color);
+        }
+
+        .nav-link-custom {
+            color: var(--subtext-color);
+            padding: 12px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            transition: 0.2s;
+        }
+
+        .nav-link-custom:hover, .nav-link-custom.active {
+            background-color: var(--border-color);
+            color: #38bdf8;
+        }
+
+        .buoy-item-card {
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            transition: 0.2s;
+        }
+
+        .buoy-item-card:hover, .buoy-item-card.active-buoy {
+            border-color: #0284c7;
+            background-color: rgba(2, 132, 199, 0.15);
+        }
+
+        #gpsMap {
+            height: 380px;
+            width: 100%;
+            border-radius: 12px;
+            z-index: 1;
+        }
+
+        /* Custom Buoy Icon on Map - outer wrapper only handles size/position,
+           the inner .buoy-marker-circle carries the battery-based color so it
+           can be set per-marker via inline style (continuous gradient). */
+        .custom-buoy-icon { background: transparent; }
+
+        .buoy-marker-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+        }
+
+        .custom-buoy-icon.active .buoy-marker-circle {
+            animation: pulseRing 1.5s infinite;
+        }
+
+        .buoy-marker-circle.low-battery-blink {
+            animation: buoyBlink 1s steps(2, start) infinite;
+        }
+
+        .custom-buoy-icon.active .buoy-marker-circle.low-battery-blink {
+            animation: pulseRing 1.5s infinite, buoyBlink 1s steps(2, start) infinite;
+        }
+
+        @keyframes pulseRing {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+
+        @keyframes buoyBlink {
+            50% { opacity: 0.15; }
+        }
+
+        /* Theme toggle buttons - fixed so neither state disappears in either theme */
+        .theme-toggle-btn {
+            border: 1px solid var(--border-color);
+            background-color: transparent;
+            color: var(--text-color);
+        }
+
+        .theme-toggle-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .theme-toggle-btn.active {
+            background-color: var(--accent);
+            border-color: var(--accent);
+            color: #ffffff;
+        }
+
+        /* Battery charging animation - icon pulses, and fill color/level react to SOC */
+        .battery-icon-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .battery-icon-wrap i {
+            animation: batteryPulse 2.2s ease-in-out infinite;
+        }
+
+        @keyframes batteryPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.45; }
+        }
+
+        /* Minimal quick buoy switcher under the map */
+        .quick-switch-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .quick-switch-label {
+            font-size: 0.72rem;
+            color: var(--subtext-color);
+        }
+
+        .quick-switch-btn {
+            font-size: 0.8rem;
+            padding: 4px 10px;
+            border: 1px solid var(--border-color);
+            background-color: transparent;
+            color: var(--text-color);
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .quick-switch-btn:hover, .quick-switch-btn:focus {
+            border-color: var(--accent);
+            color: var(--text-color);
+        }
+
+        .mini-buoy-icon {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+
+        .quick-switch-menu {
+            min-width: 190px;
+            padding: 6px;
+            font-size: 0.82rem;
+        }
+
+        .quick-switch-menu .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 6px;
+            padding: 6px 8px;
+        }
+
+        .quick-switch-menu .dropdown-item.active-quick {
+            background-color: rgba(2, 132, 199, 0.15);
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* Small inline save feedback */
+        .save-feedback {
+            font-size: 0.78rem;
+            color: #10b981;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .save-feedback.show { display: block; }
+
+        /* Connectivity status bar */
+        .status-block { display: flex; align-items: center; gap: 10px; }
+        .status-block-value { font-weight: bold; }
+
+        /* Mission timer bar */
+        .mission-stat-label { font-size: 0.72rem; color: var(--subtext-color); }
+        .mission-stat-value { font-weight: bold; font-size: 0.95rem; }
+        #val-mission-countdown, #val-next-send, #val-fixed-interval {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* H/M/S interval inputs */
+        .hms-input-group { display: flex; gap: 8px; }
+        .hms-input-item { flex: 1; text-align: center; }
+        .hms-input-item input {
+            text-align: center;
+        }
+        .hms-unit-label { font-size: 0.72rem; color: var(--subtext-color); display: block; margin-top: 2px; }
+        /* Small top-bar connectivity badges (GSM / GPS / ESP32) */
+        .status-badge {
+            font-size: 0.72rem;
+            padding: 6px 10px;
+            border-radius: 20px;
+            color: #fff;
+            transition: background-color 0.3s;
+        }
+        .status-badge.st-connected { background-color: #10b981; }
+        .status-badge.st-error { background-color: #ef4444; }
+        .status-badge.st-connecting {
+            background-color: #f97316;
+            animation: badgeBlink 1s steps(2, start) infinite;
+        }
+        @keyframes badgeBlink {
+            50% { opacity: 0.35; }
+        }
+
+        /* Offline mode banner */
+        .offline-banner {
+            border: 1px solid #f97316;
+            background-color: rgba(249, 115, 22, 0.12);
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            display: none;
+        }
+        .offline-banner.show { display: block; }
+
+        /* Connection mode toggle (reuse theme-toggle-btn styles) */
+        .nav-link-custom.disabled-link {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .history-note {
+            font-size: 0.85rem;
+            color: var(--subtext-color);
+        }
+
+        /* ===== AUTH SCREEN ===== */
+        #auth-screen {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .auth-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 28px;
+            max-width: 420px;
+            width: 100%;
+        }
+        .role-select-btn {
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-color);
+            border-radius: 12px;
+            padding: 18px 10px;
+            flex: 1;
+            transition: 0.2s;
+        }
+        .role-select-btn.active, .role-select-btn:hover {
+            border-color: var(--accent);
+            background-color: rgba(2, 132, 199, 0.15);
+            color: var(--accent);
+        }
+        .auth-subtoggle {
+            font-size: 0.82rem;
+            padding: 4px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--subtext-color);
+        }
+        .auth-subtoggle.active {
+            background-color: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .referral-code-box {
+            font-family: monospace;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+            background: rgba(2, 132, 199, 0.12);
+            border: 1px dashed var(--accent);
+            border-radius: 8px;
+            padding: 8px 12px;
+            text-align: center;
+        }
+        .auth-error {
+            color: #ef4444;
+            font-size: 0.82rem;
+            display: none;
+        }
+        .auth-error.show { display: block; }
+
+        /* Role badge in header */
+        .role-badge {
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+        .role-badge.host { background-color: rgba(16, 185, 129, 0.18); color: #10b981; }
+        .role-badge.guest { background-color: rgba(234, 179, 8, 0.18); color: #eab308; }
+
+        /* Guest-locked controls */
+        .locked-control { opacity: 0.55; position: relative; }
+        .locked-note {
+            font-size: 0.72rem;
+            color: var(--subtext-color);
+        }
+        .lock-badge {
+            font-size: 0.68rem;
+            color: var(--subtext-color);
+        }
+
+        .phone-row, .buoy-add-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        .phone-row input { flex: 1; }
+
+        /* Water leak emergency alert */
+        .leak-emergency-banner {
+            display: none;
+            background-color: #ef4444;
+            color: #fff;
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            font-weight: bold;
+            animation: leakBannerBlink 1s steps(2, start) infinite;
+        }
+        .leak-emergency-banner.show { display: block; }
+        @keyframes leakBannerBlink {
+            50% { opacity: 0.4; }
+        }
+        #leak-card.leak-alert {
+            background-color: #ef4444 !important;
+            border-color: #ef4444 !important;
+            animation: leakBannerBlink 1s steps(2, start) infinite;
+        }
+        #leak-card.leak-alert #val-leak-status,
+        #leak-card.leak-alert #txt-lbl-leak,
+        #leak-card.leak-alert #leak-icon {
+            color: #fff !important;
+        }
+                /* Hide Netlify badge/drawer */
+        netlify-drawer,
+        [data-netlify-deploy-id],
+        iframe[src*="netlify"],
+        .netlify-badge {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+    </style>
+</head>
+
+<body class="p-2 p-md-4">
+
+    <div id="auth-screen">
+        <div class="auth-card">
+            <h4 class="fw-bold text-center mb-1 text-primary"><i class="fa-solid fa-anchor me-2"></i>سامانه مدیریت بویه‌های رایکا</h4>
+            <p class="text-muted text-center small mb-4" id="txt-auth-subtitle" data-i18n="authSubtitle">برای ورود، نقش خودتان را انتخاب کنید</p>
+
+            <!-- Role selector -->
+            <div class="d-flex gap-2 mb-4" id="role-selector">
+                <button class="role-select-btn active" id="role-btn-host" onclick="selectRole('host')">
+                    <i class="fa-solid fa-user-shield d-block fs-4 mb-1"></i>
+                    <span id="txt-role-host" data-i18n="roleHostLabel">میزبان</span>
+                </button>
+                <button class="role-select-btn" id="role-btn-guest" onclick="selectRole('guest')">
+                    <i class="fa-solid fa-user d-block fs-4 mb-1"></i>
+                    <span id="txt-role-guest" data-i18n="roleGuestLabel">مهمان</span>
+                </button>
+            </div>
+
+            <!-- HOST PANEL -->
+            <div id="host-panel">
+                <div class="d-flex justify-content-center gap-2 mb-3">
+                    <button class="auth-subtoggle active" id="host-mode-login-btn" onclick="setHostMode('login')" data-i18n="hostModeLogin">ورود</button>
+                    <button class="auth-subtoggle" id="host-mode-signup-btn" onclick="setHostMode('signup')" data-i18n="hostModeSignup">ثبت‌نام میزبان جدید</button>
+                </div>
+
+                <!-- Host Login (Supabase email/password) -->
+                <div id="host-login-form">
+                    <div class="mb-2">
+                        <input type="email" class="form-control" id="hostLoginUsername" placeholder="ایمیل" data-i18n-ph="phEmail">
+                    </div>
+                    <div class="mb-3">
+                        <input type="password" class="form-control" id="hostLoginPassword" placeholder="رمز عبور" data-i18n-ph="phPassword">
+                    </div>
+                    <button class="btn btn-primary w-100" onclick="hostLoginSubmit()" data-i18n="btnHostLogin">ورود به عنوان میزبان</button>
+                </div>
+
+                <!-- Host Signup -->
+                <div id="host-signup-form" style="display:none;">
+                    <div id="host-signup-step1">
+                        <div class="mb-2">
+                            <input type="text" class="form-control" id="hostSignupUsername" placeholder="نام کاربری" data-i18n-ph="phUsername">
+                        </div>
+                        <div class="mb-2">
+                            <input type="email" class="form-control" id="hostSignupEmail" placeholder="ایمیل" data-i18n-ph="phEmail">
+                        </div>
+                        <div class="mb-2">
+                            <input type="password" class="form-control" id="hostSignupPassword" placeholder="رمز عبور" data-i18n-ph="phPassword">
+                        </div>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="hostSignupMobile" placeholder="شماره موبایل (با کد کشور، مثلاً +98912...)" data-i18n-ph="phMobile">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="sendActivationCode()" data-i18n="btnSendCode">ارسال کد فعال‌سازی</button>
+                    </div>
+                    <div id="host-signup-step2" style="display:none;">
+                        <p class="text-muted small" id="txt-activation-hint" data-i18n="activationHint">کد فعال‌سازی به شماره شما پیامک شد.</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="hostActivationCode" placeholder="کد فعال‌سازی" data-i18n-ph="phActivationCode">
+                        </div>
+                        <button class="btn btn-success w-100" onclick="confirmActivation()" data-i18n="btnActivate">فعال‌سازی و ورود</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GUEST PANEL -->
+            <div id="guest-panel" style="display:none;">
+                <p class="text-muted small mb-3" id="txt-guest-desc" data-i18n="guestDesc">برای ورود به عنوان مهمان (ناظر)، اطلاعات میزبان اصلی را وارد کنید.</p>
+                <div class="mb-2">
+                    <input type="text" class="form-control" id="guestUsername" placeholder="نام کاربری شما" data-i18n-ph="phGuestUsername">
+                </div>
+                <div class="mb-2">
+                    <input type="text" class="form-control" id="guestHostMobile" placeholder="شماره موبایل میزبان" data-i18n-ph="phHostMobile">
+                </div>
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="guestReferralCode" placeholder="کد معرف میزبان" data-i18n-ph="phReferralCode">
+                </div>
+                <button class="btn btn-warning w-100" onclick="guestLoginSubmit()" data-i18n="btnGuestLogin">ورود به عنوان مهمان</button>
+            </div>
+
+            <p class="auth-error mt-3 mb-0" id="auth-error-msg"></p>
+            <p class="text-muted text-center small mt-2 mb-0" id="txt-otp-note" style="display:none;"></p>
+        </div>
+    </div>
+
+    <!-- ===== MAIN APP SHELL (hidden until login) ===== -->
+    <div id="app-shell" style="display:none;">
+
+    <!-- TOP NAVBAR -->
+    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-outline-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu">
+                <i class="fa-solid fa-bars fa-lg"></i>
+            </button>
+            <div>
+                <h4 class="fw-bold mb-0 text-primary"><i class="fa-solid fa-anchor me-2"></i><span id="txt-app-title">سامانه مدیریت بویه‌های رایکا</span></h4>
+                <small class="text-muted" id="txt-current-buoy-display">بویه فعال: RAYKA-01 (بوشهر)</small>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge status-badge" id="badge-gsm"><i class="fa-solid fa-signal me-1"></i>GSM</span>
+            <span class="badge status-badge" id="badge-gps"><i class="fa-solid fa-location-crosshairs me-1"></i>GPS</span>
+            <span class="badge status-badge" id="badge-esp32"><i class="fa-solid fa-microchip me-1"></i>ESP32</span>
+            <span class="role-badge" id="user-role-badge">-</span>
+            <button class="btn btn-sm btn-outline-danger" onclick="logout()" title="خروج" id="btn-logout"><i class="fa-solid fa-right-from-bracket"></i></button>
+        </div>
+    </div>
+
+    <!-- OFFCANVAS SIDEBAR MENU -->
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="sidebarMenu">
+        <div class="offcanvas-header border-bottom border-secondary">
+            <h5 class="offcanvas-title" id="txt-menu-title"><i class="fa-solid fa-compass me-2 text-primary"></i>منوی ناوبری</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body">
+
+            <a href="#" class="nav-link-custom active" data-section="recent-data" onclick="showSection('recent-data'); return false;">
+                <i class="fa-solid fa-chart-line me-2"></i><span id="txt-menu-recent">۱. داشبورد و تله‌متری</span>
+            </a>
+
+            <a href="#" class="nav-link-custom" data-section="fleet" onclick="showSection('fleet'); return false;">
+                <i class="fa-solid fa-layer-group me-2"></i><span id="txt-menu-fleet">۲. بویه‌های من (ناوگان)</span>
+            </a>
+
+            <a href="#" class="nav-link-custom" id="menu-link-history" data-section="history" onclick="goToHistorySection(); return false;">
+                <i class="fa-solid fa-clock-rotate-left me-2"></i><span id="txt-menu-history">۳. اطلاعات پیشین بویه</span>
+                <i class="fa-solid fa-lock ms-auto small text-muted" id="history-lock-icon" style="display:none;"></i>
+            </a>
+            <div class="text-danger small mb-2 px-2" id="history-locked-notice" style="display:none;">
+                <i class="fa-solid fa-triangle-exclamation me-1"></i><span id="txt-history-locked-msg">این بخش فقط در حالت آنلاین در دسترس است</span>
+            </div>
+
+            <a href="#" class="nav-link-custom" data-section="settings" onclick="showSection('settings'); return false;">
+                <i class="fa-solid fa-gear me-2"></i><span id="txt-menu-settings">۴. تنظیمات سیستم</span>
+            </a>
+
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT AREA -->
+    <div id="main-content">
+
+        <!-- SECTION 1: RECENT DATA & TELEMETRY -->
+        <div id="sec-recent-data">
+
+            <!-- EMERGENCY WATER LEAK ALERT BANNER -->
+            <div class="leak-emergency-banner" id="leak-emergency-banner">
+                <i class="fa-solid fa-triangle-exclamation me-2"></i>
+                <span id="txt-leak-emergency-banner">هشدار! نشتی آب تشخیص داده شد. خاموشی اضطراری بویه توصیه می‌شود.</span>
+            </div>
+
+            <!-- OFFLINE MODE BANNER -->
+            <div class="offline-banner" id="offline-banner">
+                <i class="fa-solid fa-wifi me-1"></i>
+                <span id="txt-offline-banner"><b>حالت آفلاین فعال است:</b> داده‌ها مستقیماً از وای‌فای محلی دستگاه (ارسال‌شده توسط برنامه Tasker به شبکه خصوصی بویه‌ها) خوانده می‌شود، نه از سرور آنلاین.</span>
+            </div>
+
+            <!-- CONNECTIVITY STATUS BAR (GSM / GPS) -->
+            <div class="card p-3 mb-3">
+                <div class="row g-3">
+                    <div class="col-6 col-md-3">
+                        <div class="status-block">
+                            <i class="fa-solid fa-signal fa-lg text-success" id="gsm-icon"></i>
+                            <div>
+                                <div class="text-muted small" id="txt-gsm-label">وضعیت GSM</div>
+                                <div class="status-block-value" id="val-gsm-status">متصل</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="status-block">
+                            <i class="fa-solid fa-satellite fa-lg text-success" id="gps-icon"></i>
+                            <div>
+                                <div class="text-muted small" id="txt-gps-label">وضعیت GPS</div>
+                                <div class="status-block-value" id="val-gps-status">متصل</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small" id="txt-satellites-label">ماهواره‌های متصل</div>
+                        <div class="status-block-value" id="val-satellites">9</div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small" id="txt-speed-label">سرعت بویه</div>
+                        <div class="status-block-value" id="val-speed">0.4 km/h</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MISSION TIMER BAR -->
+            <div class="card p-3 mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <h6 class="mb-0" id="txt-mission-title"><i class="fa-solid fa-hourglass-half me-2 text-primary"></i>وضعیت ماموریت (۱۴ روزه)</h6>
+                    <span class="badge bg-primary" id="val-mission-countdown">--</span>
+                </div>
+                <div class="row g-3">
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-mission-start-label">شروع ماموریت</div>
+                        <div class="mission-stat-value" id="val-mission-start">--</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-mission-end-label">پایان ماموریت</div>
+                        <div class="mission-stat-value" id="val-mission-end">--</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-sent-count-label">ارسال‌های انجام‌شده</div>
+                        <div class="mission-stat-value text-success" id="val-sent-count">--</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-remaining-count-label">ارسال‌های باقی‌مانده</div>
+                        <div class="mission-stat-value text-info" id="val-remaining-count">--</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-fixed-interval-label">زمان ثابت هر ارسال</div>
+                        <div class="mission-stat-value" id="val-fixed-interval">--</div>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <div class="mission-stat-label" id="txt-next-send-label">تا ارسال بعدی</div>
+                        <div class="mission-stat-value text-warning" id="val-next-send">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metrics Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3">
+                    <div class="card p-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small" id="txt-lbl-bat">شارژ باتری (INA219)</span>
+                            <span class="battery-icon-wrap">
+                                <i class="fa-solid fa-battery-full text-success" id="battery-icon"></i>
+                            </span>
+                        </div>
+                        <div class="metric-val status-ok mt-2"><span id="val-bat">12.6</span>V <small class="fs-6 text-muted">(<span id="val-soc">92</span>%)</small></div>
+                    </div>
+                </div>
+
+                <div class="col-6 col-md-3">
+                    <div class="card p-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small" id="txt-lbl-gps">موقعیت دقیق GPS</span>
+                            <i class="fa-solid fa-location-dot text-primary"></i>
+                        </div>
+                        <div class="metric-val text-primary mt-2 fs-6" id="val-gps-coords">28.9712 N, 50.8361 E</div>
+                    </div>
+                </div>
+
+                <div class="col-6 col-md-3">
+                    <div class="card p-3" id="leak-card">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small" id="txt-lbl-leak">سنسور نشتی آب</span>
+                            <i class="fa-solid fa-droplet text-info" id="leak-icon"></i>
+                        </div>
+                        <div class="metric-val status-ok mt-2 fs-5" id="val-leak-status">خشک (عادی)</div>
+                        <button class="btn btn-sm btn-outline-secondary mt-2" id="btn-simulate-leak" onclick="toggleSimulateLeak()" style="font-size:0.68rem;"><span id="txt-simulate-leak-btn">شبیه‌سازی نشتی (تست)</span></button>
+                    </div>
+                </div>
+
+                <div class="col-6 col-md-3">
+                    <div class="card p-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="text-muted small" id="txt-lbl-rs485">سوکت بدنه RS485-E</span>
+                            <i class="fa-solid fa-plug text-warning"></i>
+                        </div>
+                        <div class="d-flex align-items-center justify-content-between mt-2">
+                            <span class="fw-bold" id="val-rs485-status">وصل</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-lock lock-badge" id="rs485-lock-icon" style="display:none;"></i>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="rs485Toggle" checked style="transform: scale(1.3);" onchange="toggleRs485(this.checked)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPS MAP SECTION -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card p-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="card-title mb-0"><i class="fa-solid fa-map-location-dot me-2 text-primary"></i><span id="txt-map-title">نقشه زنده موقعیت بویه‌ها روی دریا</span></h6>
+                            <small class="text-muted" id="txt-map-hint">روی هر بویه روی نقشه کلیک کنید تا اطلاعاتش لود شود</small>
+                        </div>
+                        <div id="gpsMap"></div>
+
+                        <!-- MINIMAL QUICK BUOY SWITCHER -->
+                        <div class="quick-switch-wrap">
+                            <span class="quick-switch-label" id="txt-quick-switch-label">سوییچ سریع:</span>
+                            <div class="dropdown">
+                                <button class="quick-switch-btn dropdown-toggle" type="button" id="quickSwitchBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span class="mini-buoy-icon"><i class="fa-solid fa-anchor"></i></span>
+                                    <span id="quickSwitchCurrentName">بویه ۱ (بوشهر)</span>
+                                </button>
+                                <ul class="dropdown-menu quick-switch-menu" id="quickSwitchMenu" aria-labelledby="quickSwitchBtn">
+                                    <!-- Populated by JS -->
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Telemetry Charts & Temps -->
+            <div class="row g-3">
+                <div class="col-md-8">
+                    <div class="card p-3">
+                        <h6 class="card-title mb-3"><i class="fa-solid fa-chart-area me-2 text-primary"></i><span id="txt-chart-title">روند ولتاژ و جریان لحظه‌ای</span></h6>
+                        <canvas id="telemetryChart" height="110"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card p-3">
+                        <h6 class="card-title mb-3"><i class="fa-solid fa-temperature-half me-2 text-danger"></i><span id="txt-temp-title">دمای سنسورها (DS18B20)</span></h6>
+                        <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
+                            <span id="txt-temp-in">دمای داخل محفظه:</span>
+                            <span class="badge bg-primary fs-6"><span id="val-temp-in">28.5</span> °C</span>
+                        </div>
+                        <div class="d-flex justify-content-between py-2 border-bottom border-secondary">
+                            <span id="txt-temp-out">دمای بیرون (دریا):</span>
+                            <span class="badge bg-info fs-6"><span id="val-temp-out">31.2</span> °C</span>
+                        </div>
+                        <div class="d-flex justify-content-between py-2">
+                            <span id="txt-rh-in">رطوبت داخل محفظه:</span>
+                            <span class="badge bg-warning text-dark fs-6"><span id="val-rh">42</span>%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: FLEET MANAGEMENT (بویه‌های من) -->
+        <div id="sec-fleet" style="display: none;">
+            <div class="card p-4 mx-auto" style="max-width: 800px;">
+                <h4 class="fw-bold mb-3 border-bottom border-secondary pb-2"><i class="fa-solid fa-ship me-2 text-primary"></i><span id="txt-fleet-heading">لیست بویه‌های خریداری‌شده کاربر</span></h4>
+                <p class="text-muted small mb-3" id="txt-fleet-desc">مجموعه بویه‌های فعال شما در این حساب کاربری. جهت مشاهده اطلاعات کامل هر بویه، آن را انتخاب کنید.</p>
+
+                <!-- Add buoy (host only) -->
+                <div class="mb-3" id="add-buoy-block">
+                    <button class="btn btn-sm btn-outline-success" onclick="toggleAddBuoyForm()"><i class="fa-solid fa-plus me-1"></i><span id="txt-add-buoy-btn" data-i18n="addBuoyBtn">افزودن بویه جدید</span></button>
+                    <div class="buoy-add-row mt-2" id="add-buoy-form" style="display:none;">
+                        <input type="text" class="form-control form-control-sm" id="newBuoyName" placeholder="نام بویه (مثلاً بویه ۴ - چابهار)">
+                        <input type="text" class="form-control form-control-sm" id="newBuoyLocation" placeholder="نام محل" style="max-width:160px;">
+                        <button class="btn btn-sm btn-success" onclick="addNewBuoy()"><i class="fa-solid fa-check"></i></button>
+                    </div>
+                    <p class="locked-note mt-2 mb-0" id="txt-fleet-locked-note" style="display:none;"><i class="fa-solid fa-lock me-1"></i><span id="txt-fleet-locked-text" data-i18n="fleetLockedText">افزودن/حذف بویه فقط برای میزبان ممکن است</span></p>
+                </div>
+
+                <div class="row g-3" id="fleet-card-container">
+                    <!-- Dynamic Buoy Cards Inserted Here -->
+                </div>
+
+                <button class="btn btn-primary w-100 mt-4" id="txt-btn-save-fleet" onclick="saveBuoySelection()">ذخیره انتخاب بویه</button>
+                <div class="save-feedback" id="fleet-save-feedback"><i class="fa-solid fa-circle-check me-1"></i><span id="txt-fleet-saved-msg">انتخاب شما ذخیره و به بویه فعال اعمال شد</span></div>
+            </div>
+        </div>
+
+        <!-- SECTION: HISTORICAL BUOY DATA (only meaningful in Online mode) -->
+        <div id="sec-history" style="display: none;">
+            <div class="card p-4 mx-auto" style="max-width: 800px;">
+                <h4 class="fw-bold mb-2 border-bottom border-secondary pb-2"><i class="fa-solid fa-clock-rotate-left me-2 text-primary"></i><span id="txt-history-heading">اطلاعات پیشین بویه</span></h4>
+                <p class="text-muted small mb-3" id="txt-history-desc">روند شارژ باتری و دما در ۷ روز اخیر برای بویه فعال.</p>
+                <p class="history-note mb-3"><i class="fa-solid fa-server me-1"></i><span id="txt-history-buoy-label">بویه:</span> <b id="val-history-buoy-name">-</b></p>
+                <canvas id="historyChart" height="140"></canvas>
+                <p class="history-note mt-3 mb-0" id="txt-history-note"><i class="fa-solid fa-circle-info me-1"></i>این بخش پس از اتصال به سرور آنلاین، آرشیو کامل داده‌های هر بویه را نمایش خواهد داد.</p>
+            </div>
+        </div>
+
+        <!-- SECTION 3: SYSTEM SETTINGS -->
+        <div id="sec-settings" style="display: none;">
+            <div class="card p-4 mx-auto" style="max-width: 650px;">
+                <h4 class="fw-bold mb-4 border-bottom border-secondary pb-2"><i class="fa-solid fa-sliders me-2 text-warning"></i><span id="txt-setting-heading">تنظیمات سیستم و تم</span></h4>
+
+                <!-- Connection Mode Toggle (Online / Offline) -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold" id="txt-connmode-label">حالت اتصال داده (Online / Offline):</label>
+                    <div class="d-flex gap-3">
+                        <button class="btn theme-toggle-btn w-50 active" id="btn-mode-online" onclick="previewConnectionMode('online')">
+                            <i class="fa-solid fa-cloud me-2"></i><span id="txt-mode-online-btn">آنلاین (سرور)</span>
+                        </button>
+                        <button class="btn theme-toggle-btn w-50" id="btn-mode-offline" onclick="previewConnectionMode('offline')">
+                            <i class="fa-solid fa-wifi me-2"></i><span id="txt-mode-offline-btn">آفلاین (وای‌فای محلی)</span>
+                        </button>
+                    </div>
+                    <p class="text-muted small mt-2 mb-0" id="txt-connmode-desc">در حالت آنلاین، اطلاعات از سرور اختصاصی دریافت می‌شود و آرشیو اطلاعات پیشین هر بویه در دسترس است. در حالت آفلاین، برنامه اطلاعات را مستقیماً از وای‌فای محلی گوشی (که با Tasker از بویه‌ها دریافت می‌شود) می‌خواند و آرشیو پیشین در دسترس نیست.</p>
+                </div>
+
+                <!-- Theme Toggle -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold" id="txt-theme-label">تم ظاهری داشبورد (Theme):</label>
+                    <div class="d-flex gap-3">
+                        <button class="btn theme-toggle-btn w-50 active" id="btn-theme-dark" onclick="previewTheme('dark')">
+                            <i class="fa-solid fa-moon me-2"></i><span id="txt-theme-dark-btn">حالت تاریک (Dark)</span>
+                        </button>
+                        <button class="btn theme-toggle-btn w-50" id="btn-theme-light" onclick="previewTheme('light')">
+                            <i class="fa-solid fa-sun me-2"></i><span id="txt-theme-light-btn">حالت روشن (Light)</span>
+                        </button>
+                    </div>
+                </div>
+
+
+                <!-- Language Selection -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold" id="txt-lang-select-label">زبان داشبورد (Language):</label>
+                    <select class="form-select border-secondary" id="langSelect" onchange="previewLanguage(this.value)">
+                        <option value="fa" selected>فارسی (Persian)</option>
+                        <option value="en">English (انگلیسی)</option>
+                        <option value="ar">العربية (عربی)</option>
+                    </select>
+                </div>
+
+                <!-- Custom Send Interval (Hours / Minutes / Seconds) -->
+                <div class="mb-2">
+                    <label class="form-label fw-bold" id="txt-interval-label">بازه ارسال پیامک دوره‌ای به ساحل (دلخواه):</label>
+                    <div class="hms-input-group">
+                        <div class="hms-input-item">
+                            <input type="number" min="0" class="form-control" id="intervalHours" oninput="previewInterval()">
+                            <span class="hms-unit-label" id="txt-unit-hours">ساعت</span>
+                        </div>
+                        <div class="hms-input-item">
+                            <input type="number" min="0" max="59" class="form-control" id="intervalMinutes" oninput="previewInterval()">
+                            <span class="hms-unit-label" id="txt-unit-minutes">دقیقه</span>
+                        </div>
+                        <div class="hms-input-item">
+                            <input type="number" min="0" max="59" class="form-control" id="intervalSeconds" oninput="previewInterval()">
+                            <span class="hms-unit-label" id="txt-unit-seconds">ثانیه</span>
+                        </div>
+                    </div>
+                    <p class="text-muted small mt-2 mb-0" id="txt-interval-preview"></p>
+                </div>
+
+                <!-- SMS Recipient Phone Numbers (host only - sends command config to the buoy) -->
+                <div class="mb-4 mt-4" id="phone-numbers-block">
+                    <label class="form-label fw-bold" id="txt-phones-label" data-i18n="phonesLabel">شماره‌های گیرنده گزارش پیامکی از بویه:</label>
+                    <div id="phone-numbers-list"><!-- rows injected by JS --></div>
+                    <button class="btn btn-sm btn-outline-primary mt-1" id="btn-add-phone" onclick="addPhoneRow()"><i class="fa-solid fa-plus me-1"></i><span id="txt-add-phone-btn" data-i18n="addPhoneBtn">افزودن شماره</span></button>
+                    <p class="locked-note mt-2 mb-0" id="txt-phones-locked-note" style="display:none;"><i class="fa-solid fa-lock me-1"></i><span id="txt-phones-locked-text" data-i18n="phonesLockedText">این بخش فقط برای میزبان قابل تغییر است</span></p>
+                </div>
+
+                <!-- Robot master power switch (host only - sends command to the buoy) -->
+                <div class="mb-4" id="robot-switch-block">
+                    <label class="form-label fw-bold d-flex justify-content-between align-items-center">
+                        <span id="txt-robot-switch-label" data-i18n="robotSwitchLabel">روشن/خاموش کردن ربات (بویه):</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="robotPowerToggle" checked style="transform: scale(1.3);" onchange="previewRobotPower(this.checked)">
+                        </div>
+                    </label>
+                    <p class="locked-note mb-0" id="txt-robot-locked-note" style="display:none;"><i class="fa-solid fa-lock me-1"></i><span id="txt-robot-locked-text" data-i18n="robotLockedText">این کلید فرمانی است و فقط میزبان می‌تواند تغییرش دهد</span></p>
+                </div>
+
+                <p class="text-muted small mb-4 mt-3" id="txt-settings-hint"><i class="fa-solid fa-circle-info me-1"></i>تغییرات فقط پیش‌نمایش هستن؛ برای ثبت نهایی باید دکمه ذخیره رو بزنید.</p>
+
+                <button class="btn btn-primary w-100 mt-2" id="txt-btn-save" onclick="saveSettings()">ذخیره تنظیمات در ESP32</button>
+                <div class="save-feedback" id="settings-save-feedback"><i class="fa-solid fa-circle-check me-1"></i><span id="txt-settings-saved-msg">تنظیمات ذخیره شد</span></div>
+
+                <!-- Referral code (host only) -->
+                <div class="mt-4 pt-3 border-top border-secondary" id="referral-code-block" style="display:none;">
+                    <label class="form-label fw-bold" id="txt-referral-label" data-i18n="referralLabel">کد معرف شما برای دعوت مهمان:</label>
+                    <div class="referral-code-box" id="val-referral-code">-</div>
+                </div>
+
+                <!-- Cloud sync status (Supabase) -->
+                <div class="mt-4 pt-3 border-top border-secondary" id="cloud-sync-block">
+                    <label class="form-label fw-bold" id="txt-cloudsync-label" data-i18n="cloudsyncLabel">وضعیت اتصال به سرور ابری:</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="fa-solid fa-circle-check text-success" id="cloud-sync-icon"></i>
+                        <span id="val-cloud-sync-status">-</span>
+                    </div>
+                    <p class="locked-note mt-1 mb-0" id="txt-cloudsync-note" data-i18n="cloudsyncNote">داده‌ها هنگام اتصال به اینترنت خودکار با سرور همگام می‌شوند و برای مشاهده آفلاین روی همین دستگاه کش می‌شوند.</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    </div> <!-- /#app-shell -->
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // FLEET DATA (بویه‌های کاربر)
+        let buoysFleet = [
+            { id: "RAYKA-01", name: "بویه ۱ (بوشهر)", lat: 28.9712, lon: 50.8361, vbat: 12.6, soc: 92, tempIn: 28.5, tempOut: 31.2, rh: 42, leak: "DRY", rs485: true, locationName: "خلیج فارس - بوشهر", gsm: "connected", gps: "connected", esp32: "connected", satellites: 9, speedKmh: 0.4 },
+            { id: "RAYKA-02", name: "بویه ۲ (کیش)", lat: 26.5325, lon: 53.9871, vbat: 12.2, soc: 27, tempIn: 30.1, tempOut: 33.4, rh: 48, leak: "DRY", rs485: true, locationName: "جزیره کیش", gsm: "connecting", gps: "connected", esp32: "connected", satellites: 6, speedKmh: 0.2 },
+            { id: "RAYKA-03", name: "بویه ۳ (قشم)", lat: 26.9581, lon: 56.2708, vbat: 11.9, soc: 3, tempIn: 32.0, tempOut: 34.8, rh: 55, leak: "DRY", rs485: false, locationName: "تنگه هرمز - قشم", gsm: "error", gps: "error", esp32: "error", satellites: 0, speedKmh: null }
+        ];
+
+        // COMMITTED (saved) STATE - what's actually applied across the app
+        let appState = {
+            theme: 'dark',
+            lang: 'fa',
+            smsIntervalSeconds: 900, // default 15 minutes
+            buoyId: 'RAYKA-01',
+            connectionMode: 'online',
+            smsRecipients: ['09120000000'],
+            robotPower: true
+        };
+
+        // PENDING STATE - live preview only, discarded if not explicitly saved
+        let pendingState = { ...appState, smsRecipients: [...appState.smsRecipients] };
+
+        let selectedBuoyId = appState.buoyId;
+        let map, markers = {};
+
+        // ===== SUPABASE CONFIG =====
+        // TODO: replace with your real Supabase project values
+        // (Supabase Dashboard > Project Settings > API > Project URL / anon public key)
+        // NOTE: you must also enable "Phone" as a sign-in provider under
+        // Authentication > Providers, and connect an SMS gateway there
+        // (Twilio / MessageBird / Vonage, or a custom "Send SMS Hook" Edge
+        // Function if you need an Iranian SMS provider like Kavenegar).
+        const SUPABASE_URL = 'https://gyjynftzwdcfjjgyuetr.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5anluZnR6d2RjZmpqZ3l1ZXRyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNzgyODAsImV4cCI6MjEwNDk1NDI4MH0.OWZSraPCyxj_hs1ddaHP9RA9D9CppT8jnFcKNGUaio8';
+        
+        let sb = null;
+        let supabaseReady = false;
+
+        try {
+        if (window.supabase) {
+            sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            auth: {
+                persistSession: true,       // دسکتاپ/موبایل نشست را در localStorage نگه می‌دارد
+                autoRefreshToken: true,     // توکن JWT را خودکار رفرش می‌کند
+                detectSessionInUrl: false
+            }
+            });
+            
+            // بررسی صحت کلیدها و آماده بودن کلاینت
+            supabaseReady = !!sb && 
+                            SUPABASE_URL.indexOf('YOUR_PROJECT') === -1 && 
+                            SUPABASE_ANON_KEY.indexOf('YOUR_ANON_KEY') === -1;
+
+            if (supabaseReady) {
+            console.log('Supabase initialized successfully!');
+            }
+        }
+        } catch (e) {
+        console.warn('Supabase failed to initialize - check SUPABASE_URL / SUPABASE_ANON_KEY at the top of the script.', e);
+        }
+        // نام جدولی که داده‌های بویه در Supabase در آن ذخیره می‌شوند
+        const TELEMETRY_TABLE = 'telemetry';
+
+        // ۱. تابع بروزرسانی عناصر UI داشبورد
+        function updateBuoyUI(data) {
+        if (!data) return;
+
+        // به عنوان مثال: آپدیت مقدار ولتاژ باتری در کارت یا نمودار
+        const voltElement = document.getElementById('battery-val');
+        if (voltElement && data.battery_voltage) {
+            voltElement.innerText = data.battery_voltage + ' V';
+        }
+
+        // اضافه کردن منطق آپدیت سایر سنسورها (GPS، قطب‌نما، جریان و ...)
+        console.log('داده تله‌متری جدید اعمال شد:', data);
+        }
+
+        // ۲. دریافت آخرین داده ثبت‌شده به محض باز شدن صفحه
+        async function fetchLatestBuoyTelemetry() {
+        if (!sb || !supabaseReady) return;
+
+        const { data, error } = await sb
+            .from(TELEMETRY_TABLE)
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            console.error('خطا در دریافت آخرین تله‌متری:', error.message);
+            return;
+        }
+
+        if (data && data.length > 0) {
+            updateBuoyUI(data[0]);
+        }
+        }
+
+        // ۳. گوش دادن زنده به تغییرات جدول (Realtime Subscription)
+        function subscribeToBuoyRealtime() {
+        if (!sb || !supabaseReady) return;
+
+        sb.channel('buoy-telemetry-channel')
+            .on('postgres_changes', 
+            { event: 'INSERT', schema: 'public', table: TELEMETRY_TABLE }, 
+            (payload) => {
+                console.log('تله‌متری جدید به صورت زنده دریافت شد:', payload.new);
+                updateBuoyUI(payload.new);
+            }
+            )
+            .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('کانال دریافت زنده تله‌متری بویه فعال شد.');
+            }
+            });
+        }
+
+        // اجرا پس از آماده‌سازی Supabase
+        if (supabaseReady) {
+        fetchLatestBuoyTelemetry();
+        subscribeToBuoyRealtime();
+        }
+        // ===== AUTH / ROLE SYSTEM (backed by Supabase Auth + Postgres "hosts" table) =====
+        let currentUser = null; // { role: 'host'|'guest', uid, username, email, mobile, referralCode, hostUid }
+        let pendingSignup = null; // { username, email, password, mobile } awaiting phone OTP confirmation
+
+        // Shows whether we're actually talking to Supabase right now, or working from local cache
+        function updateCloudSyncStatus() {
+            const icon = document.getElementById('cloud-sync-icon');
+            const statusEl = document.getElementById('val-cloud-sync-status');
+            if (!statusEl) return;
+            const t = translations[currentLang()];
+
+            if (!supabaseReady) {
+                icon.className = 'fa-solid fa-triangle-exclamation text-danger';
+                statusEl.innerText = t.cloudNotConfigured;
+            } else if (navigator.onLine) {
+                icon.className = 'fa-solid fa-circle-check text-success';
+                statusEl.innerText = t.cloudOnlineSynced;
+            } else {
+                icon.className = 'fa-solid fa-clock text-warning';
+                statusEl.innerText = t.cloudOfflineCache;
+            }
+        }
+
+        // Step 1 of host signup: verify phone ownership via a real SMS OTP sent through Supabase
+        function sendActivationCode() {
+            const t = translations[currentLang()];
+            const username = document.getElementById('hostSignupUsername').value.trim();
+            const email = document.getElementById('hostSignupEmail').value.trim();
+            const password = document.getElementById('hostSignupPassword').value.trim();
+            const mobile = document.getElementById('hostSignupMobile').value.trim();
+
+            if (!username || !email || !password || !mobile) { showAuthError(t.errFillAllFields); return; }
+            if (!supabaseReady) { showAuthError(t.errSupabaseNotConfigured); return; }
+
+            pendingSignup = { username, email, password, mobile };
+
+            sb.auth.signInWithOtp({ phone: mobile }).then(({ error }) => {
+                if (error) {
+                    console.warn(error);
+                    showAuthError(t.errSendCodeFailed);
+                    return;
+                }
+                document.getElementById('host-signup-step1').style.display = 'none';
+                document.getElementById('host-signup-step2').style.display = 'block';
+                hideAuthError();
+            });
+        }
+
+        // Step 2 of host signup: confirm the OTP (this both verifies the phone AND creates
+        // the Supabase Auth user), then attach email/password to that same account and
+        // write the profile row into the "hosts" table.
+        function confirmActivation() {
+            const t = translations[currentLang()];
+            const code = document.getElementById('hostActivationCode').value.trim();
+            if (!pendingSignup) { showAuthError(t.errWrongCode); return; }
+
+            sb.auth.verifyOtp({ phone: pendingSignup.mobile, token: code, type: 'sms' })
+                .then(({ data, error }) => {
+                    if (error) { console.warn(error); showAuthError(t.errWrongCode); return; }
+
+                    const uid = data.user.id;
+
+                    // Let the host also log in later with email/password on any device.
+                    return sb.auth.updateUser({ email: pendingSignup.email, password: pendingSignup.password })
+                        .then(({ error: updErr }) => {
+                            if (updErr) console.warn('Could not attach email/password to account:', updErr);
+
+                            const referralCode = 'RAYKA-' + Math.floor(1000 + Math.random() * 8999);
+                            const hostRow = {
+                                id: uid,
+                                username: pendingSignup.username,
+                                email: pendingSignup.email,
+                                mobile: pendingSignup.mobile,
+                                referral_code: referralCode
+                            };
+
+                            return sb.from('hosts').upsert(hostRow).select().single()
+                                .then(({ data: row, error: dbErr }) => {
+                                    if (dbErr) { console.warn(dbErr); showAuthError(t.errSignupFailed); return; }
+                                    currentUser = {
+                                        role: 'host', uid: uid, username: row.username,
+                                        email: row.email, mobile: row.mobile, referralCode: row.referral_code
+                                    };
+                                    pendingSignup = null;
+                                    enterApp();
+                                });
+                        });
+                })
+                .catch((err) => {
+                    console.warn(err);
+                    showAuthError(t.errSignupFailed);
+                });
+        }
+
+        // Real Supabase email/password login - works from any device once online
+        function hostLoginSubmit() {
+            const t = translations[currentLang()];
+            const email = document.getElementById('hostLoginUsername').value.trim();
+            const password = document.getElementById('hostLoginPassword').value.trim();
+            if (!email || !password) { showAuthError(t.errFillAllFields); return; }
+            if (!supabaseReady) { showAuthError(t.errSupabaseNotConfigured); return; }
+
+            sb.auth.signInWithPassword({ email, password })
+                .then(({ data, error }) => {
+                    if (error) { console.warn(error); showAuthError(t.errBadCredentials); return; }
+                    return sb.from('hosts').select('*').eq('id', data.user.id).single()
+                        .then(({ data: row, error: dbErr }) => {
+                            if (dbErr || !row) { showAuthError(t.errBadCredentials); return; }
+                            currentUser = {
+                                role: 'host', uid: data.user.id, username: row.username,
+                                email: row.email, mobile: row.mobile, referralCode: row.referral_code
+                            };
+                            enterApp();
+                        });
+                });
+        }
+
+        // Guest login: anonymous Supabase session + server-side lookup (RPC) of the host
+        // by mobile + referral code. The lookup runs as a SECURITY DEFINER function in
+        // Postgres so guests never get direct read access to the "hosts" table.
+        function guestLoginSubmit() {
+            const t = translations[currentLang()];
+            const username = document.getElementById('guestUsername').value.trim();
+            const hostMobile = document.getElementById('guestHostMobile').value.trim();
+            const referralCode = document.getElementById('guestReferralCode').value.trim();
+
+            if (!username || !hostMobile || !referralCode) { showAuthError(t.errFillAllFields); return; }
+            if (!supabaseReady) { showAuthError(t.errSupabaseNotConfigured); return; }
+
+            sb.rpc('find_host_by_referral', { p_mobile: hostMobile, p_referral: referralCode })
+                .then(({ data, error }) => {
+                    if (error || !data || data.length === 0) { showAuthError(t.errHostNotFound); return; }
+                    const host = data[0];
+
+                    return sb.auth.signInAnonymously().then(({ data: authData, error: authErr }) => {
+                        if (authErr) { console.warn(authErr); showAuthError(t.errHostNotFound); return; }
+                        currentUser = {
+                            role: 'guest', uid: authData.user.id, username: username,
+                            hostUid: host.id, hostUsername: host.username
+                        };
+                        enterApp();
+                    });
+                })
+                .catch((err) => {
+                    console.warn(err);
+                    showAuthError(t.errHostNotFound);
+                });
+        }
+
+        function logout() {
+            if (sb) sb.auth.signOut();
+            currentUser = null;
+            document.getElementById('app-shell').style.display = 'none';
+            document.getElementById('auth-screen').style.display = 'flex';
+            hideAuthError();
+        }
+
+
+        // MISSION CONFIG - 14 day mission
+        const missionDurationDays = 14;
+        const missionStart = new Date(2026, 8, 1, 8, 0, 0); // Sep 1, 2026 08:00 (local demo start)
+        const missionEnd = new Date(missionStart.getTime() + missionDurationDays * 86400000);
+
+        // TRANSLATIONS
+        const translations = {
+            fa: {
+                dir: 'rtl',
+                appTitle: 'سامانه مدیریت بویه‌های رایکا',
+                menuTitle: 'منوی ناوبری',
+                menuRecent: '۱. داشبورد و تله‌متری',
+                menuFleet: '۲. بویه‌های من (ناوگان)',
+                menuSettings: '۳. تنظیمات سیستم',
+                bat: 'شارژ باتری (INA219)',
+                gps: 'موقعیت دقیق GPS',
+                leak: 'سنسور نشتی آب',
+                leakValDry: 'خشک (عادی)',
+                leakValWet: 'نشتی تشخیص داده شد!',
+                simulateLeak: 'شبیه‌سازی نشتی (تست)',
+                stopSimulateLeak: 'رفع شبیه‌سازی نشتی',
+                leakEmergencyBanner: 'هشدار! نشتی آب تشخیص داده شد. خاموشی اضطراری بویه توصیه می‌شود.',
+                leakNotifTitle: 'هشدار نشتی آب',
+                leakNotifBody: 'نشتی آب تشخیص داده شد. توصیه می‌شود بویه فوراً خاموش شود.',
+                rs485: 'سوکت بدنه RS485-E',
+                rs485On: 'وصل',
+                rs485Off: 'قطع',
+                mapTitle: 'نقشه زنده موقعیت بویه‌ها روی دریا',
+                mapHint: 'روی هر بویه کلیک کنید تا انتخاب شود',
+                quickSwitchLabel: 'سوییچ سریع:',
+                chartTitle: 'روند ولتاژ و جریان لحظه‌ای',
+                tempTitle: 'دمای سنسورها (DS18B20)',
+                tempIn: 'دمای داخل محفظه:',
+                tempOut: 'دمای بیرون (دریا):',
+                rhIn: 'رطوبت داخل محفظه:',
+                fleetHeading: 'لیست بویه‌های خریداری‌شده کاربر',
+                fleetDesc: 'مجموعه بویه‌های فعال شما در این حساب کاربری. جهت مشاهده اطلاعات کامل هر بویه، آن را انتخاب کنید.',
+                fleetSaveBtn: 'ذخیره انتخاب بویه',
+                fleetSavedMsg: 'انتخاب شما ذخیره و به بویه فعال اعمال شد',
+                settingHeading: 'تنظیمات سیستم و تم',
+                themeLabel: 'تم ظاهری داشبورد (Theme):',
+                themeDarkBtn: 'حالت تاریک (Dark)',
+                themeLightBtn: 'حالت روشن (Light)',
+                langLabel: 'زبان داشبورد (Language):',
+                intervalLabel: 'بازه ارسال پیامک دوره‌ای به ساحل (دلخواه):',
+                unitHours: 'ساعت',
+                unitMinutes: 'دقیقه',
+                unitSeconds: 'ثانیه',
+                intervalPreview: 'با این بازه، در کل ماموریت ۱۴ روزه تقریباً {count} ارسال خواهید داشت (هر {hms}).',
+                settingsHint: 'تغییرات فقط پیش‌نمایش هستن؛ برای ثبت نهایی باید دکمه ذخیره رو بزنید.',
+                btnSave: 'ذخیره تنظیمات در ESP32',
+                settingsSavedMsg: 'تنظیمات ذخیره شد',
+                gsmLabel: 'وضعیت GSM',
+                gpsLabel: 'وضعیت GPS',
+                satellitesLabel: 'ماهواره‌های متصل',
+                speedLabel: 'سرعت بویه',
+                statusConnected: 'متصل',
+                statusConnecting: 'در حال اتصال...',
+                statusError: 'اتصال دچار خطا',
+                missionTitle: 'وضعیت ماموریت (۱۴ روزه)',
+                missionStartLabel: 'شروع ماموریت',
+                missionEndLabel: 'پایان ماموریت',
+                sentCountLabel: 'ارسال‌های انجام‌شده',
+                remainingCountLabel: 'ارسال‌های باقی‌مانده',
+                fixedIntervalLabel: 'زمان ثابت هر ارسال',
+                nextSendLabel: 'تا ارسال بعدی',
+                missionEnded: 'ماموریت پایان یافته',
+                daysUnit: 'روز',
+                menuHistory: '۳. اطلاعات پیشین بویه',
+                historyLockedMsg: 'این بخش فقط در حالت آنلاین در دسترس است',
+                connmodeLabel: 'حالت اتصال داده (Online / Offline):',
+                modeOnlineBtn: 'آنلاین (سرور)',
+                modeOfflineBtn: 'آفلاین (وای‌فای محلی)',
+                connmodeDesc: 'در حالت آنلاین، اطلاعات از سرور اختصاصی دریافت می‌شود و آرشیو اطلاعات پیشین هر بویه در دسترس است. در حالت آفلاین، برنامه اطلاعات را مستقیماً از وای‌فای محلی گوشی (که با Tasker از بویه‌ها دریافت می‌شود) می‌خواند و آرشیو پیشین در دسترس نیست.',
+                offlineBannerTitle: 'حالت آفلاین فعال است:',
+                offlineBannerText: 'داده‌ها مستقیماً از وای‌فای محلی دستگاه (ارسال‌شده توسط برنامه Tasker به شبکه خصوصی بویه‌ها) خوانده می‌شود، نه از سرور آنلاین.',
+                historyHeading: 'اطلاعات پیشین بویه',
+                historyDesc: 'روند شارژ باتری و دما در ۷ روز اخیر برای بویه فعال.',
+                historyBuoyLabel: 'بویه:',
+                historyNote: 'این بخش پس از اتصال به سرور آنلاین، آرشیو کامل داده‌های هر بویه را نمایش خواهد داد.',
+
+                authSubtitle: 'برای ورود، نقش خودتان را انتخاب کنید',
+                roleHostLabel: 'میزبان',
+                roleGuestLabel: 'مهمان',
+                guestDesc: 'برای ورود به عنوان مهمان (ناظر)، اطلاعات میزبان اصلی را وارد کنید.',
+                hostModeLogin: 'ورود',
+                hostModeSignup: 'ثبت‌نام میزبان جدید',
+                btnHostLogin: 'ورود به عنوان میزبان',
+                btnSendCode: 'ارسال کد فعال‌سازی',
+                btnActivate: 'فعال‌سازی و ورود',
+                btnGuestLogin: 'ورود به عنوان مهمان',
+                phUsername: 'نام کاربری',
+                phPassword: 'رمز عبور',
+                phMobile: 'شماره موبایل',
+                phEmail: 'ایمیل',
+                phActivationCode: 'کد فعال‌سازی',
+                phGuestUsername: 'نام کاربری شما',
+                phHostMobile: 'شماره موبایل میزبان',
+                phReferralCode: 'کد معرف میزبان',
+                activationHint: 'یک کد فعال‌سازی واقعی به شماره موبایل شما پیامک می‌شود.',
+                roleHost: 'میزبان',
+                roleGuestObserver: 'مهمان (ناظر)',
+                errFillAllFields: 'لطفاً همه فیلدها را پر کنید',
+                errUsernameTaken: 'این نام کاربری قبلاً استفاده شده است',
+                errWrongCode: 'کد فعال‌سازی نادرست است',
+                errBadCredentials: 'ایمیل یا رمز عبور اشتباه است',
+                errHostNotFound: 'میزبانی با این شماره موبایل و کد معرف پیدا نشد',
+                errSupabaseNotConfigured: 'سرور هنوز پیکربندی نشده است (SUPABASE_URL / SUPABASE_ANON_KEY را تکمیل کنید)',
+                errSendCodeFailed: 'ارسال کد فعال‌سازی ناموفق بود؛ شماره موبایل یا اتصال اینترنت را بررسی کنید',
+                errSignupFailed: 'ثبت‌نام ناموفق بود؛ شاید این ایمیل قبلاً ثبت شده باشد',
+                cannotDeleteLast: 'حداقل باید یک بویه در ناوگان باقی بماند',
+                confirmDeleteBuoy: 'آیا از حذف بویه {id} مطمئن هستید؟',
+                addBuoyBtn: 'افزودن بویه جدید',
+                fleetLockedText: 'افزودن/حذف بویه فقط برای میزبان ممکن است',
+                phonesLabel: 'شماره‌های گیرنده گزارش پیامکی از بویه:',
+                addPhoneBtn: 'افزودن شماره',
+                phonesLockedText: 'این بخش فقط برای میزبان قابل تغییر است',
+                robotSwitchLabel: 'روشن/خاموش کردن ربات (بویه):',
+                robotLockedText: 'این کلید فرمانی است و فقط میزبان می‌تواند تغییرش دهد',
+                referralLabel: 'کد معرف شما برای دعوت مهمان:',
+                cloudsyncLabel: 'وضعیت اتصال به سرور ابری:',
+                cloudsyncNote: 'داده‌ها هنگام اتصال به اینترنت خودکار با سرور همگام می‌شوند و برای مشاهده آفلاین روی همین دستگاه کش می‌شوند.',
+                cloudNotConfigured: 'سرور هنوز پیکربندی نشده است',
+                cloudOnlineSynced: 'متصل و همگام با سرور',
+                cloudOfflineCache: 'آفلاین - نمایش از حافظه محلی'
+            },
+            en: {
+                dir: 'ltr',
+                appTitle: 'RAYKA Fleet & Buoy Control',
+                menuTitle: 'Navigation Menu',
+                menuRecent: '1. Dashboard & Telemetry',
+                menuFleet: '2. My Buoys (Fleet)',
+                menuSettings: '3. System Settings',
+                bat: 'Battery Charge (INA219)',
+                gps: 'Exact GPS Position',
+                leak: 'Water Leak Sensor',
+                leakValDry: 'DRY (OK)',
+                leakValWet: 'Leak Detected!',
+                simulateLeak: 'Simulate Leak (Test)',
+                stopSimulateLeak: 'Clear Leak Simulation',
+                leakEmergencyBanner: 'Warning! Water leak detected. Emergency shutdown of the buoy is recommended.',
+                leakNotifTitle: 'Water Leak Alert',
+                leakNotifBody: 'A water leak was detected. Immediate emergency shutdown is recommended.',
+                rs485: 'Body Socket RS485-E',
+                rs485On: 'ON',
+                rs485Off: 'OFF',
+                mapTitle: 'Live GPS Marine Buoy Map',
+                mapHint: 'Click any buoy on map to select',
+                quickSwitchLabel: 'Quick switch:',
+                chartTitle: 'Voltage & Current Telemetry',
+                tempTitle: 'Sensors Temp (DS18B20)',
+                tempIn: 'Internal Hull Temp:',
+                tempOut: 'External Sea Temp:',
+                rhIn: 'Internal Humidity:',
+                fleetHeading: 'User Registered Buoys',
+                fleetDesc: 'Active marine buoys connected to your account. Select any buoy to inspect live data.',
+                fleetSaveBtn: 'Save Buoy Selection',
+                fleetSavedMsg: 'Selection saved and applied as the active buoy',
+                settingHeading: 'System & Theme Settings',
+                themeLabel: 'Dashboard Appearance Theme:',
+                themeDarkBtn: 'Dark Mode',
+                themeLightBtn: 'Light Mode',
+                langLabel: 'Dashboard Language:',
+                intervalLabel: 'Periodic Shore SMS Interval (custom):',
+                unitHours: 'Hours',
+                unitMinutes: 'Minutes',
+                unitSeconds: 'Seconds',
+                intervalPreview: 'At this interval, you will get about {count} transmissions over the full 14-day mission (every {hms}).',
+                settingsHint: 'Changes are a preview only; press Save to apply them permanently.',
+                btnSave: 'Save Settings to ESP32',
+                settingsSavedMsg: 'Settings saved',
+                gsmLabel: 'GSM Status',
+                gpsLabel: 'GPS Status',
+                satellitesLabel: 'Connected Satellites',
+                speedLabel: 'Buoy Speed',
+                statusConnected: 'Connected',
+                statusConnecting: 'Connecting...',
+                statusError: 'Connection Error',
+                missionTitle: 'Mission Status (14 days)',
+                missionStartLabel: 'Mission Start',
+                missionEndLabel: 'Mission End',
+                sentCountLabel: 'Transmissions Sent',
+                remainingCountLabel: 'Transmissions Remaining',
+                fixedIntervalLabel: 'Fixed Interval / Send',
+                nextSendLabel: 'Next Send In',
+                missionEnded: 'Mission ended',
+                daysUnit: 'd',
+                menuHistory: '3. Buoy History',
+                historyLockedMsg: 'This section is only available in Online mode',
+                connmodeLabel: 'Data Connection Mode (Online / Offline):',
+                modeOnlineBtn: 'Online (Server)',
+                modeOfflineBtn: 'Offline (Local WiFi)',
+                connmodeDesc: 'In Online mode, data comes from the dedicated server and each buoy\'s historical archive is available. In Offline mode, the app reads data directly from the phone\'s local WiFi (fed by Tasker from the buoys) and the historical archive is not available.',
+                offlineBannerTitle: 'Offline mode is active:',
+                offlineBannerText: 'Data is being read directly from the device\'s local WiFi (sent by the Tasker app to the buoys\' private network), not from the online server.',
+                historyHeading: 'Buoy Historical Data',
+                historyDesc: 'Battery charge and temperature trend over the last 7 days for the active buoy.',
+                historyBuoyLabel: 'Buoy:',
+                historyNote: 'Once connected to the online server, this section will show the full historical archive for each buoy.',
+
+                authSubtitle: 'Please select your role to sign in',
+                roleHostLabel: 'Host',
+                roleGuestLabel: 'Guest',
+                guestDesc: 'To sign in as a guest (observer), enter the main host\'s details.',
+                hostModeLogin: 'Login',
+                hostModeSignup: 'New Host Signup',
+                btnHostLogin: 'Sign in as Host',
+                btnSendCode: 'Send Activation Code',
+                btnActivate: 'Activate & Sign In',
+                btnGuestLogin: 'Sign in as Guest',
+                phUsername: 'Username',
+                phPassword: 'Password',
+                phMobile: 'Mobile Number',
+                phEmail: 'Email',
+                phActivationCode: 'Activation Code',
+                phGuestUsername: 'Your Username',
+                phHostMobile: 'Host\'s Mobile Number',
+                phReferralCode: 'Host Referral Code',
+                activationHint: 'A real activation code will be texted to your mobile number.',
+                roleHost: 'Host',
+                roleGuestObserver: 'Guest (Observer)',
+                errFillAllFields: 'Please fill in all fields',
+                errUsernameTaken: 'This username is already taken',
+                errWrongCode: 'Incorrect activation code',
+                errBadCredentials: 'Incorrect email or password',
+                errHostNotFound: 'No host found with this mobile number and referral code',
+                errSupabaseNotConfigured: 'The server is not configured yet (finish the SUPABASE_URL / SUPABASE_ANON_KEY config)',
+                errSendCodeFailed: 'Could not send the activation code; check the mobile number or your internet connection',
+                errSignupFailed: 'Signup failed; this email may already be registered',
+                cannotDeleteLast: 'At least one buoy must remain in the fleet',
+                confirmDeleteBuoy: 'Are you sure you want to delete buoy {id}?',
+                addBuoyBtn: 'Add New Buoy',
+                fleetLockedText: 'Only the host can add or remove buoys',
+                phonesLabel: 'SMS Report Recipient Numbers:',
+                addPhoneBtn: 'Add Number',
+                phonesLockedText: 'Only the host can change this section',
+                robotSwitchLabel: 'Robot (Buoy) Power Switch:',
+                robotLockedText: 'This is a command switch; only the host can change it',
+                referralLabel: 'Your Referral Code to Invite a Guest:',
+
+
+
+
+
+            },
+            ar: {
+                dir: 'rtl',
+                appTitle: 'نظام إدارة عوامات رايكا',
+                menuTitle: 'قائمة التنقل',
+                menuRecent: '١. لوحة التحكم والقياس',
+                menuFleet: '٢. عواماتي (الأسطول)',
+                menuSettings: '٣. إعدادات النظام',
+                bat: 'شحن البطارية (INA219)',
+                gps: 'موقع GPS الدقيق',
+                leak: 'مستشعر تسرب المياه',
+                leakValDry: 'جاف (عادي)',
+                leakValWet: 'تم اكتشاف تسرب!',
+                simulateLeak: 'محاكاة التسرب (اختبار)',
+                stopSimulateLeak: 'إلغاء محاكاة التسرب',
+                leakEmergencyBanner: 'تحذير! تم اكتشاف تسرب مياه. يُنصح بإيقاف تشغيل العوامة فوراً.',
+                leakNotifTitle: 'تنبيه تسرب المياه',
+                leakNotifBody: 'تم اكتشاف تسرب مياه. يُنصح بإيقاف التشغيل الطارئ فوراً.',
+                rs485: 'مقبس الهيكل RS485-E',
+                rs485On: 'متصل',
+                rs485Off: 'مقطوع',
+                mapTitle: 'خريطة GPS المباشرة للعوامات',
+                mapHint: 'انقر على أي عوامة لتحديدها',
+                quickSwitchLabel: 'تبديل سريع:',
+                chartTitle: 'مخطط الجهد والتيار اللحظي',
+                tempTitle: 'درجة حرارة المستشعرات',
+                tempIn: 'درجة الحرارة الداخلية:',
+                tempOut: 'درجة الحرارة الخارجية:',
+                rhIn: 'الرطوبة الداخلية:',
+                fleetHeading: 'قائمة العوامات المسجلة للمستخدم',
+                fleetDesc: 'العوامات البحرية النشطة في حسابك. اختر عوامة لعرض بياناتها.',
+                fleetSaveBtn: 'حفظ اختيار العوامة',
+                fleetSavedMsg: 'تم حفظ الاختيار وتطبيقه كعوامة نشطة',
+                settingHeading: 'إعدادات النظام والسمة',
+                themeLabel: 'سمة لوحة التحكم (Theme):',
+                themeDarkBtn: 'الوضع الداكن',
+                themeLightBtn: 'الوضع الفاتح',
+                langLabel: 'لغة لوحة التحكم:',
+                intervalLabel: 'فترة إرسال الرسائل النصية للساحل (مخصصة):',
+                unitHours: 'ساعة',
+                unitMinutes: 'دقيقة',
+                unitSeconds: 'ثانية',
+                intervalPreview: 'بهذه الفترة، ستحصل على حوالي {count} إرسال خلال مهمة الـ ١٤ يوم (كل {hms}).',
+                settingsHint: 'التغييرات معاينة فقط؛ اضغط حفظ لتطبيقها بشكل نهائي.',
+                btnSave: 'حفظ الإعدادات على ESP32',
+                settingsSavedMsg: 'تم حفظ الإعدادات',
+                gsmLabel: 'حالة GSM',
+                gpsLabel: 'حالة GPS',
+                satellitesLabel: 'الأقمار الصناعية المتصلة',
+                speedLabel: 'سرعة العوامة',
+                statusConnected: 'متصل',
+                statusConnecting: 'جارٍ الاتصال...',
+                statusError: 'خطأ في الاتصال',
+                missionTitle: 'حالة المهمة (١٤ يوم)',
+                missionStartLabel: 'بداية المهمة',
+                missionEndLabel: 'نهاية المهمة',
+                sentCountLabel: 'الإرسالات المكتملة',
+                remainingCountLabel: 'الإرسالات المتبقية',
+                fixedIntervalLabel: 'الفترة الثابتة لكل إرسال',
+                nextSendLabel: 'الإرسال التالي خلال',
+                missionEnded: 'انتهت المهمة',
+                daysUnit: 'يوم',
+                menuHistory: '٣. بيانات العوامة السابقة',
+                historyLockedMsg: 'هذا القسم متاح فقط في وضع الاتصال بالإنترنت',
+                connmodeLabel: 'وضع اتصال البيانات (Online / Offline):',
+                modeOnlineBtn: 'متصل بالإنترنت (خادم)',
+                modeOfflineBtn: 'غير متصل (واي فاي محلي)',
+                connmodeDesc: 'في الوضع المتصل، تُستقبل البيانات من الخادم المخصص ويتوفر أرشيف البيانات السابقة لكل عوامة. في الوضع غير المتصل، يقرأ التطبيق البيانات مباشرة من واي فاي الهاتف المحلي (المرسلة عبر تطبيق Tasker من العوامات) ولا يتوفر الأرشيف السابق.',
+                offlineBannerTitle: 'وضع عدم الاتصال مفعّل:',
+                offlineBannerText: 'تُقرأ البيانات مباشرة من واي فاي الجهاز المحلي (المرسلة بواسطة تطبيق Tasker إلى الشبكة الخاصة بالعوامات)، وليس من الخادم عبر الإنترنت.',
+                historyHeading: 'بيانات العوامة السابقة',
+                historyDesc: 'اتجاه شحن البطارية ودرجة الحرارة خلال آخر ٧ أيام للعوامة النشطة.',
+                historyBuoyLabel: 'العوامة:',
+                historyNote: 'بعد الاتصال بالخادم عبر الإنترنت، سيعرض هذا القسم الأرشيف الكامل لبيانات كل عوامة.',
+
+                authSubtitle: 'الرجاء اختيار دورك لتسجيل الدخول',
+                roleHostLabel: 'مضيف',
+                roleGuestLabel: 'ضيف',
+                guestDesc: 'لتسجيل الدخول كضيف (مراقب)، أدخل بيانات المضيف الرئيسي.',
+                hostModeLogin: 'تسجيل الدخول',
+                hostModeSignup: 'تسجيل مضيف جديد',
+                btnHostLogin: 'الدخول كمضيف',
+                btnSendCode: 'إرسال رمز التفعيل',
+                btnActivate: 'تفعيل ودخول',
+                btnGuestLogin: 'الدخول كضيف',
+                phUsername: 'اسم المستخدم',
+                phPassword: 'كلمة المرور',
+                phMobile: 'رقم الجوال',
+                phEmail: 'البريد الإلكتروني',
+                phActivationCode: 'رمز التفعيل',
+                phGuestUsername: 'اسم المستخدم الخاص بك',
+                phHostMobile: 'رقم جوال المضيف',
+                phReferralCode: 'كود إحالة المضيف',
+                activationHint: 'سيتم إرسال رمز تفعيل حقيقي إلى رقم جوالك عبر رسالة نصية.',
+                roleHost: 'مضيف',
+                roleGuestObserver: 'ضيف (مراقب)',
+                errFillAllFields: 'الرجاء تعبئة جميع الحقول',
+                errUsernameTaken: 'اسم المستخدم هذا مستخدم بالفعل',
+                errWrongCode: 'رمز التفعيل غير صحيح',
+                errBadCredentials: 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
+                errHostNotFound: 'لم يتم العثور على مضيف بهذا الرقم وكود الإحالة',
+                errSupabaseNotConfigured: 'الخادم غير مُهيأ بعد (أكمل إعدادات SUPABASE_URL / SUPABASE_ANON_KEY)',
+                errSendCodeFailed: 'فشل إرسال رمز التفعيل؛ تحقق من رقم الجوال أو الاتصال بالإنترنت',
+                errSignupFailed: 'فشل التسجيل؛ ربما يكون هذا البريد الإلكتروني مسجلاً بالفعل',
+                cannotDeleteLast: 'يجب أن تبقى عوامة واحدة على الأقل في الأسطول',
+                confirmDeleteBuoy: 'هل أنت متأكد من حذف العوامة {id}؟',
+                addBuoyBtn: 'إضافة عوامة جديدة',
+                fleetLockedText: 'إضافة/حذف العوامات ممكن فقط للمضيف',
+                phonesLabel: 'أرقام مستلمي تقارير الرسائل النصية من العوامة:',
+                addPhoneBtn: 'إضافة رقم',
+                phonesLockedText: 'هذا القسم قابل للتغيير فقط من قبل المضيف',
+                robotSwitchLabel: 'تشغيل/إيقاف الروبوت (العوامة):',
+                robotLockedText: 'هذا مفتاح أوامر، يمكن للمضيف فقط تغييره',
+                referralLabel: 'كود الإحالة الخاص بك لدعوة ضيف:',
+
+
+
+
+
+            }
+        };
+
+        // ===== HELPERS =====
+        function pad(n) { return n.toString().padStart(2, '0'); }
+
+        function formatDateTime(d) {
+            return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function formatHMS(totalSeconds) {
+            totalSeconds = Math.max(0, Math.floor(totalSeconds));
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+
+        function formatCountdownWithDays(totalSeconds, dayLabel) {
+            totalSeconds = Math.max(0, Math.floor(totalSeconds));
+            const days = Math.floor(totalSeconds / 86400);
+            const rem = totalSeconds % 86400;
+            const h = Math.floor(rem / 3600);
+            const m = Math.floor((rem % 3600) / 60);
+            const s = rem % 60;
+            return `${days} ${dayLabel} ${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+
+        function currentLang() { return document.documentElement.lang || appState.lang; }
+
+        // Continuous battery-charge color gradient: green(100) -> yellow -> orange -> red(10) -> black(<5)
+        function socToColor(soc) {
+            const stops = [
+                { t: 0, c: [17, 17, 17] },
+                { t: 5, c: [90, 20, 20] },
+                { t: 10, c: [239, 68, 68] },
+                { t: 30, c: [249, 115, 22] },
+                { t: 60, c: [234, 179, 8] },
+                { t: 80, c: [132, 204, 22] },
+                { t: 100, c: [16, 185, 129] }
+            ];
+            const clamped = Math.max(0, Math.min(100, soc));
+            let lower = stops[0], upper = stops[stops.length - 1];
+            for (let i = 0; i < stops.length - 1; i++) {
+                if (clamped >= stops[i].t && clamped <= stops[i + 1].t) {
+                    lower = stops[i]; upper = stops[i + 1]; break;
+                }
+            }
+            const range = (upper.t - lower.t) || 1;
+            const ratio = (clamped - lower.t) / range;
+            const rgb = lower.c.map((v, i) => Math.round(v + (upper.c[i] - v) * ratio));
+            return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        }
+
+        // ===== MAP =====
+        function initMap() {
+            map = L.map('gpsMap').setView([27.8, 53.5], 6);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 18,
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+
+            buoysFleet.forEach(b => addMarkerForBuoy(b));
+        }
+
+        // Create (or re-create) a map marker for a buoy - reused by initMap and addNewBuoy
+        function addMarkerForBuoy(b) {
+            const isSelected = (b.id === selectedBuoyId);
+            const bgColor = socToColor(b.soc);
+            const lowBattery = b.soc < 5;
+
+            const buoyIcon = L.divIcon({
+                className: `custom-buoy-icon ${isSelected ? 'active' : ''}`,
+                html: `<div class="buoy-marker-circle ${lowBattery ? 'low-battery-blink' : ''}" style="background:${bgColor}; box-shadow:0 0 10px ${bgColor};"><i class="fa-solid fa-anchor"></i></div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
+
+            const marker = L.marker([b.lat, b.lon], { icon: buoyIcon }).addTo(map);
+            marker.bindPopup(`<b>${b.id} - ${b.name}</b><br>${b.locationName}<br>SOC: ${b.soc}%`);
+            marker.on('click', () => quickSelectBuoy(b.id));
+
+            markers[b.id] = marker;
+        }
+
+        // RENDER FLEET LIST (highlight reflects the PENDING selection, not yet saved)
+        function renderFleetLists() {
+            const fleetContainer = document.getElementById('fleet-card-container');
+            fleetContainer.innerHTML = '';
+            const isHost = currentUser && currentUser.role === 'host';
+
+            buoysFleet.forEach(b => {
+                const isPending = (b.id === pendingState.buoyId);
+                const socColor = socToColor(b.soc);
+                const deleteBtn = isHost
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteBuoy('${b.id}')" title="حذف بویه"><i class="fa-solid fa-trash"></i></button>`
+                    : '';
+
+                const fleetCard = document.createElement('div');
+                fleetCard.className = 'col-md-4';
+                fleetCard.innerHTML = `
+                    <div class="card p-3 buoy-item-card ${isPending ? 'active-buoy' : ''}" onclick="previewBuoySelection('${b.id}')">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold mb-0 text-primary"><i class="fa-solid fa-anchor me-1"></i>${b.id}</h6>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-success">آنلاین</span>
+                                ${deleteBtn}
+                            </div>
+                        </div>
+                        <div class="fw-bold mb-1">${b.name}</div>
+                        <small class="text-muted d-block mb-2">${b.locationName}</small>
+                        <hr class="my-2 border-secondary">
+                        <div class="d-flex justify-content-between text-muted small align-items-center">
+                            <span>ولتاژ: ${b.vbat}V</span>
+                            <span class="badge" style="background:${socColor};">${b.soc}%</span>
+                        </div>
+                    </div>
+                `;
+                fleetContainer.appendChild(fleetCard);
+            });
+        }
+
+        // ===== ADD / DELETE BUOY (host only) =====
+        function toggleAddBuoyForm() {
+            const form = document.getElementById('add-buoy-form');
+            form.style.display = (form.style.display === 'none') ? 'flex' : 'none';
+        }
+
+        let newBuoyCounter = buoysFleet.length + 1;
+        function addNewBuoy() {
+            const nameInput = document.getElementById('newBuoyName');
+            const locInput = document.getElementById('newBuoyLocation');
+            const name = nameInput.value.trim() || `بویه ${newBuoyCounter}`;
+            const location = locInput.value.trim() || '—';
+            const newId = `RAYKA-${String(newBuoyCounter).padStart(2, '0')}`;
+            newBuoyCounter++;
+
+            buoysFleet.push({
+                id: newId, name: name, lat: 27.5 + Math.random(), lon: 54 + Math.random() * 2,
+                vbat: 12.5, soc: 100, tempIn: 27, tempOut: 29, rh: 40, leak: 'DRY', rs485: true,
+                locationName: location, gsm: 'connecting', gps: 'connecting', esp32: 'connecting',
+                satellites: 0, speedKmh: 0
+            });
+
+            const newMarkerBuoy = buoysFleet[buoysFleet.length - 1];
+            addMarkerForBuoy(newMarkerBuoy);
+
+            nameInput.value = '';
+            locInput.value = '';
+            toggleAddBuoyForm();
+            renderFleetLists();
+            renderQuickSwitcher();
+        }
+
+        function deleteBuoy(buoyId) {
+            if (buoysFleet.length <= 1) {
+                alert(translations[currentLang()].cannotDeleteLast);
+                return;
+            }
+            if (!confirm(translations[currentLang()].confirmDeleteBuoy.replace('{id}', buoyId))) return;
+
+            if (markers[buoyId]) { map.removeLayer(markers[buoyId]); delete markers[buoyId]; }
+            buoysFleet = buoysFleet.filter(x => x.id !== buoyId);
+
+            if (appState.buoyId === buoyId) {
+                applyBuoy(buoysFleet[0].id);
+            }
+            if (pendingState.buoyId === buoyId) pendingState.buoyId = appState.buoyId;
+
+            renderFleetLists();
+            renderQuickSwitcher();
+        }
+
+        // RENDER THE MINIMAL QUICK-SWITCH DROPDOWN (under the map)
+        function renderQuickSwitcher() {
+            const menu = document.getElementById('quickSwitchMenu');
+            menu.innerHTML = '';
+
+            buoysFleet.forEach(b => {
+                const isActive = (b.id === appState.buoyId);
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <a class="dropdown-item ${isActive ? 'active-quick' : ''}" href="#" onclick="quickSelectBuoy('${b.id}'); return false;">
+                        <span class="mini-buoy-icon" style="background:${socToColor(b.soc)}"><i class="fa-solid fa-anchor"></i></span>
+                        <span>${b.name}</span>
+                        ${isActive ? '<i class="fa-solid fa-check ms-auto"></i>' : ''}
+                    </a>
+                `;
+                menu.appendChild(li);
+            });
+
+            const b = buoysFleet.find(x => x.id === appState.buoyId);
+            if (b) document.getElementById('quickSwitchCurrentName').innerText = b.name;
+        }
+
+        // UPDATE BATTERY ICON BASED ON CHARGE LEVEL (keeps the pulse animation, changes fill level/color)
+        function updateBatteryIcon(soc) {
+            const icon = document.getElementById('battery-icon');
+            icon.classList.remove('fa-battery-full', 'fa-battery-three-quarters', 'fa-battery-half', 'fa-battery-quarter', 'fa-battery-empty', 'text-success', 'text-warning', 'text-danger');
+
+            if (soc > 80) {
+                icon.classList.add('fa-battery-full', 'text-success');
+            } else if (soc > 55) {
+                icon.classList.add('fa-battery-three-quarters', 'text-success');
+            } else if (soc > 30) {
+                icon.classList.add('fa-battery-half', 'text-warning');
+            } else if (soc > 10) {
+                icon.classList.add('fa-battery-quarter', 'text-danger');
+            } else {
+                icon.classList.add('fa-battery-empty', 'text-danger');
+            }
+        }
+
+        // UPDATE CONNECTIVITY (GSM/GPS) STATUS BAR FOR THE GIVEN BUOY
+        function updateConnectivityBar(b) {
+            const t = translations[currentLang()];
+
+            const setStatus = (prefix, status) => {
+                const icon = document.getElementById(prefix + '-icon');
+                const val = document.getElementById('val-' + prefix + '-status');
+                if (status === 'connected') {
+                    icon.className = 'fa-solid fa-circle-check fa-lg text-success';
+                    val.innerText = t.statusConnected;
+                    val.className = 'status-block-value status-ok';
+                } else if (status === 'connecting') {
+                    icon.className = 'fa-solid fa-spinner fa-spin fa-lg text-warning';
+                    val.innerText = t.statusConnecting;
+                    val.className = 'status-block-value text-warning';
+                } else {
+                    icon.className = 'fa-solid fa-triangle-exclamation fa-lg text-danger';
+                    val.innerText = t.statusError;
+                    val.className = 'status-block-value status-danger';
+                }
+            };
+
+            setStatus('gsm', b.gsm);
+            setStatus('gps', b.gps);
+
+            const satEl = document.getElementById('val-satellites');
+            const speedEl = document.getElementById('val-speed');
+            if (b.gps === 'connected') {
+                satEl.innerText = b.satellites;
+                speedEl.innerText = `${b.speedKmh} km/h`;
+            } else {
+                satEl.innerText = '—';
+                speedEl.innerText = '—';
+            }
+        }
+
+        // Update the small top-bar connectivity badges (GSM / GPS / ESP32)
+        function setStatusBadge(elId, status, labelText) {
+            const el = document.getElementById(elId);
+            const t = translations[currentLang()];
+            el.classList.remove('st-connected', 'st-connecting', 'st-error');
+            if (status === 'connected') {
+                el.classList.add('st-connected');
+                el.title = t.statusConnected;
+            } else if (status === 'connecting') {
+                el.classList.add('st-connecting');
+                el.title = t.statusConnecting;
+            } else {
+                el.classList.add('st-error');
+                el.title = t.statusError;
+            }
+        }
+
+        function updateHeaderBadges(b) {
+            setStatusBadge('badge-gsm', b.gsm, 'GSM');
+            setStatusBadge('badge-gps', b.gps, 'GPS');
+            setStatusBadge('badge-esp32', b.esp32, 'ESP32');
+        }
+
+        // Re-apply anything language-dependent that's tied to the currently active buoy
+        function refreshBuoyDependentTexts() {
+            const b = buoysFleet.find(x => x.id === appState.buoyId);
+            if (!b) return;
+            const t = translations[currentLang()];
+            document.getElementById('val-rs485-status').innerText = b.rs485 ? t.rs485On : t.rs485Off;
+            updateConnectivityBar(b);
+            updateHeaderBadges(b);
+            updateLeakAlert(b);
+        }
+
+        // ===== WATER LEAK EMERGENCY ALERT =====
+        let leakNotificationShown = false;
+        function updateLeakAlert(b) {
+            const t = translations[currentLang()];
+            const card = document.getElementById('leak-card');
+            const statusEl = document.getElementById('val-leak-status');
+            const banner = document.getElementById('leak-emergency-banner');
+            const isLeaking = b.leak === 'WET';
+
+            statusEl.innerText = isLeaking ? t.leakValWet : t.leakValDry;
+            card.classList.toggle('leak-alert', isLeaking);
+            banner.classList.toggle('show', isLeaking);
+
+            const simBtn = document.getElementById('txt-simulate-leak-btn');
+            simBtn.innerText = isLeaking ? t.stopSimulateLeak : t.simulateLeak;
+
+            if (isLeaking && !leakNotificationShown) {
+                leakNotificationShown = true;
+                showLeakNotification(b, t);
+            } else if (!isLeaking) {
+                leakNotificationShown = false;
+            }
+        }
+
+        function showLeakNotification(b, t) {
+            const msg = `${t.leakNotifTitle} - ${b.id} (${b.name})`;
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification(t.leakNotifTitle, { body: `${b.id} (${b.name}) - ${t.leakNotifBody}`, icon: '' });
+                } else if (Notification.permission !== 'denied') {
+                    Notification.requestPermission().then(perm => {
+                        if (perm === 'granted') {
+                            new Notification(t.leakNotifTitle, { body: `${b.id} (${b.name}) - ${t.leakNotifBody}`, icon: '' });
+                        }
+                    });
+                }
+            }
+        }
+
+        // Demo-only toggle since there's no real hardware sensor feeding this yet
+        function toggleSimulateLeak() {
+            const b = buoysFleet.find(x => x.id === appState.buoyId);
+            if (!b) return;
+            b.leak = (b.leak === 'WET') ? 'DRY' : 'WET';
+            updateLeakAlert(b);
+        }
+
+        // APPLY (COMMIT) A BUOY AS THE ACTIVE ONE - updates dashboard fields, map, quick switcher
+        function applyBuoy(buoyId) {
+            const b = buoysFleet.find(x => x.id === buoyId);
+            if (!b) return;
+
+            appState.buoyId = buoyId;
+            pendingState.buoyId = buoyId;
+            selectedBuoyId = buoyId;
+
+            document.getElementById('txt-current-buoy-display').innerText = `بویه فعال: ${b.id} (${b.name})`;
+            document.getElementById('val-bat').innerText = b.vbat;
+            document.getElementById('val-soc').innerText = b.soc;
+            document.getElementById('val-gps-coords').innerText = `${b.lat} N, ${b.lon} E`;
+            document.getElementById('val-temp-in').innerText = b.tempIn;
+            document.getElementById('val-temp-out').innerText = b.tempOut;
+            document.getElementById('val-rh').innerText = b.rh;
+            document.getElementById('rs485Toggle').checked = b.rs485;
+
+            updateBatteryIcon(b.soc);
+            refreshBuoyDependentTexts();
+
+            // Update Map Markers Visual
+            buoysFleet.forEach(item => {
+                const m = markers[item.id];
+                if (m) {
+                    const el = m.getElement();
+                    if (el) {
+                        if (item.id === buoyId) el.classList.add('active');
+                        else el.classList.remove('active');
+                    }
+                }
+            });
+
+            focusMapOnBuoy(b);
+            renderQuickSwitcher();
+        }
+
+        // CENTER + ZOOM THE MAP ONTO A BUOY (an automatic "switch"), safely even if the
+        // map is currently hidden (e.g. selection was saved from the "My Buoys" section) -
+        // in that case it's deferred and applied as soon as the map becomes visible again
+        let pendingMapFocus = null;
+        function focusMapOnBuoy(b) {
+            if (!map) return;
+            const mapVisible = document.getElementById('sec-recent-data').style.display !== 'none';
+
+            if (mapVisible) {
+                map.invalidateSize();
+                map.flyTo([b.lat, b.lon], 9, { duration: 0.8 });
+                pendingMapFocus = null;
+            } else {
+                pendingMapFocus = b;
+            }
+        }
+
+        // QUICK SWITCH (map marker click / mini dropdown under the map) - commits immediately,
+        // since you're already looking at the live dashboard
+        function quickSelectBuoy(buoyId) {
+            applyBuoy(buoyId);
+        }
+
+        // PREVIEW ONLY - clicking a card in "My Buoys" just highlights it, does not touch the dashboard
+        function previewBuoySelection(buoyId) {
+            pendingState.buoyId = buoyId;
+            renderFleetLists();
+        }
+
+        // COMMIT the previewed buoy selection from the "My Buoys" section
+        function saveBuoySelection() {
+            applyBuoy(pendingState.buoyId);
+            renderFleetLists();
+            flashSaveFeedback('fleet-save-feedback');
+        }
+
+        // ===== SECTIONS =====
+        function showSection(section) {
+            // Revert any unsaved preview (theme/language/interval/connection mode) back to the
+            // last committed state, and reset the pending buoy selection back to the actual active buoy
+            applyThemeState(appState.theme);
+            applyLanguageState(appState.lang);
+            applyIntervalInputsFromSeconds(appState.smsIntervalSeconds);
+            applyConnectionModeState(appState.connectionMode);
+            pendingState = { ...appState, smsRecipients: [...appState.smsRecipients] };
+            renderPhoneRows();
+            document.getElementById('robotPowerToggle').checked = appState.robotPower;
+            updateCloudSyncStatus();
+            hideSaveFeedback('settings-save-feedback');
+            hideSaveFeedback('fleet-save-feedback');
+            hideHistoryLockedNotice();
+
+            document.getElementById('sec-recent-data').style.display = (section === 'recent-data') ? 'block' : 'none';
+            document.getElementById('sec-fleet').style.display = (section === 'fleet') ? 'block' : 'none';
+            document.getElementById('sec-history').style.display = (section === 'history') ? 'block' : 'none';
+            document.getElementById('sec-settings').style.display = (section === 'settings') ? 'block' : 'none';
+
+            document.querySelectorAll('.nav-link-custom').forEach(el => {
+                el.classList.toggle('active', el.dataset.section === section);
+            });
+
+            if (section === 'fleet') renderFleetLists();
+            if (section === 'history') renderHistoryChart();
+
+            const sidebarEl = document.getElementById('sidebarMenu');
+            const sidebar = bootstrap.Offcanvas.getInstance(sidebarEl) || bootstrap.Offcanvas.getOrCreateInstance(sidebarEl);
+            sidebar.hide();
+
+            if (section === 'recent-data' && map) {
+                setTimeout(() => {
+                    map.invalidateSize();
+                    const target = pendingMapFocus || buoysFleet.find(x => x.id === appState.buoyId);
+                    if (target) map.flyTo([target.lat, target.lon], 9, { duration: 0.8 });
+                    pendingMapFocus = null;
+                }, 300);
+            }
+        }
+
+        // History menu is only reachable in Online mode - Offline shows a brief notice instead
+        function goToHistorySection() {
+            if (appState.connectionMode !== 'online') {
+                showHistoryLockedNotice();
+                const sidebarEl = document.getElementById('sidebarMenu');
+                const sidebar = bootstrap.Offcanvas.getInstance(sidebarEl) || bootstrap.Offcanvas.getOrCreateInstance(sidebarEl);
+                if (sidebar) sidebar.hide();
+                return;
+            }
+            showSection('history');
+        }
+
+        function showHistoryLockedNotice() {
+            const el = document.getElementById('history-locked-notice');
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 3000);
+        }
+
+        function hideHistoryLockedNotice() {
+            document.getElementById('history-locked-notice').style.display = 'none';
+        }
+
+        // ===== CONNECTION MODE (Online / Offline) =====
+        function previewConnectionMode(mode) {
+            pendingState.connectionMode = mode;
+            applyConnectionModeState(mode);
+        }
+
+        function applyConnectionModeState(mode) {
+            document.getElementById('btn-mode-online').classList.toggle('active', mode === 'online');
+            document.getElementById('btn-mode-offline').classList.toggle('active', mode === 'offline');
+            document.getElementById('offline-banner').classList.toggle('show', mode === 'offline');
+        }
+
+        // Enable/disable the "Historical Buoy Data" menu item based on the COMMITTED connection mode
+        function updateHistoryMenuState() {
+            const link = document.getElementById('menu-link-history');
+            const lockIcon = document.getElementById('history-lock-icon');
+            const isOnline = appState.connectionMode === 'online';
+            link.classList.toggle('disabled-link', !isOnline);
+            lockIcon.style.display = isOnline ? 'none' : 'inline-block';
+        }
+
+        // ===== HISTORICAL DATA CHART (mock data, seeded per buoy for consistency) =====
+        let historyChartInstance = null;
+        function seededRandom(seed) {
+            let x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        function renderHistoryChart() {
+            const b = buoysFleet.find(x => x.id === appState.buoyId);
+            if (!b) return;
+            document.getElementById('val-history-buoy-name').innerText = `${b.id} - ${b.name}`;
+
+            const days = [];
+            const batterySeries = [];
+            const tempSeries = [];
+            const seedBase = b.id.charCodeAt(b.id.length - 1);
+
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                days.push(`${pad(d.getMonth() + 1)}/${pad(d.getDate())}`);
+                const noise = seededRandom(seedBase + i) * 10 - 5;
+                batterySeries.push(Math.max(0, Math.min(100, Math.round(b.soc + noise + (6 - i)))));
+                tempSeries.push(Math.round((b.tempOut + seededRandom(seedBase + i + 50) * 3 - 1.5) * 10) / 10);
+            }
+
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            if (historyChartInstance) historyChartInstance.destroy();
+            historyChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: days,
+                    datasets: [
+                        { label: 'Battery %', data: batterySeries, borderColor: '#10b981', tension: 0.3, yAxisID: 'y' },
+                        { label: 'Temp °C', data: tempSeries, borderColor: '#f97316', tension: 0.3, yAxisID: 'y1' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { position: 'left', min: 0, max: 100 },
+                        y1: { position: 'right', grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+        }
+
+        // ===== THEME =====
+        function previewTheme(theme) {
+            pendingState.theme = theme;
+            applyThemeState(theme);
+        }
+
+        function applyThemeState(theme) {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            document.getElementById('btn-theme-dark').classList.toggle('active', theme === 'dark');
+            document.getElementById('btn-theme-light').classList.toggle('active', theme === 'light');
+        }
+
+        // ===== LANGUAGE =====
+        function previewLanguage(lang) {
+            pendingState.lang = lang;
+            applyLanguageState(lang);
+        }
+
+        function applyLanguageState(lang) {
+            const t = translations[lang];
+            document.documentElement.dir = t.dir;
+            document.documentElement.lang = lang;
+            document.getElementById('langSelect').value = lang;
+
+            document.getElementById('txt-app-title').innerText = t.appTitle;
+            document.getElementById('txt-menu-title').innerText = t.menuTitle;
+            document.getElementById('txt-menu-recent').innerText = t.menuRecent;
+            document.getElementById('txt-menu-fleet').innerText = t.menuFleet;
+            document.getElementById('txt-menu-history').innerText = t.menuHistory;
+            document.getElementById('txt-history-locked-msg').innerText = t.historyLockedMsg;
+            document.getElementById('txt-menu-settings').innerText = t.menuSettings;
+
+            document.getElementById('txt-lbl-bat').innerText = t.bat;
+            document.getElementById('txt-lbl-gps').innerText = t.gps;
+            document.getElementById('txt-lbl-leak').innerText = t.leak;
+            document.getElementById('txt-lbl-rs485').innerText = t.rs485;
+
+            document.getElementById('txt-map-title').innerText = t.mapTitle;
+            document.getElementById('txt-map-hint').innerText = t.mapHint;
+            document.getElementById('txt-quick-switch-label').innerText = t.quickSwitchLabel;
+            document.getElementById('txt-chart-title').innerText = t.chartTitle;
+            document.getElementById('txt-temp-title').innerText = t.tempTitle;
+            document.getElementById('txt-temp-in').innerText = t.tempIn;
+            document.getElementById('txt-temp-out').innerText = t.tempOut;
+            document.getElementById('txt-rh-in').innerText = t.rhIn;
+
+            document.getElementById('txt-fleet-heading').innerText = t.fleetHeading;
+            document.getElementById('txt-fleet-desc').innerText = t.fleetDesc;
+            document.getElementById('txt-btn-save-fleet').innerText = t.fleetSaveBtn;
+            document.getElementById('txt-fleet-saved-msg').innerText = t.fleetSavedMsg;
+
+            document.getElementById('txt-setting-heading').innerText = t.settingHeading;
+            document.getElementById('txt-connmode-label').innerText = t.connmodeLabel;
+            document.getElementById('txt-mode-online-btn').innerText = t.modeOnlineBtn;
+            document.getElementById('txt-mode-offline-btn').innerText = t.modeOfflineBtn;
+            document.getElementById('txt-connmode-desc').innerText = t.connmodeDesc;
+            document.getElementById('txt-offline-banner').innerHTML = `<b>${t.offlineBannerTitle}</b> ${t.offlineBannerText}`;
+            document.getElementById('txt-leak-emergency-banner').innerText = t.leakEmergencyBanner;
+            document.getElementById('txt-theme-label').innerText = t.themeLabel;
+            document.getElementById('txt-theme-dark-btn').innerText = t.themeDarkBtn;
+            document.getElementById('txt-theme-light-btn').innerText = t.themeLightBtn;
+            document.getElementById('txt-lang-select-label').innerText = t.langLabel;
+            document.getElementById('txt-interval-label').innerText = t.intervalLabel;
+            document.getElementById('txt-unit-hours').innerText = t.unitHours;
+            document.getElementById('txt-unit-minutes').innerText = t.unitMinutes;
+            document.getElementById('txt-unit-seconds').innerText = t.unitSeconds;
+            document.getElementById('txt-settings-hint').innerText = t.settingsHint;
+            document.getElementById('txt-btn-save').innerText = t.btnSave;
+            document.getElementById('txt-settings-saved-msg').innerText = t.settingsSavedMsg;
+
+            document.getElementById('txt-gsm-label').innerText = t.gsmLabel;
+            document.getElementById('txt-gps-label').innerText = t.gpsLabel;
+            document.getElementById('txt-satellites-label').innerText = t.satellitesLabel;
+            document.getElementById('txt-speed-label').innerText = t.speedLabel;
+
+            document.getElementById('txt-history-heading').innerText = t.historyHeading;
+            document.getElementById('txt-history-desc').innerText = t.historyDesc;
+            document.getElementById('txt-history-buoy-label').innerText = t.historyBuoyLabel;
+            document.getElementById('txt-history-note').innerHTML = `<i class="fa-solid fa-circle-info me-1"></i>${t.historyNote}`;
+
+            document.getElementById('txt-mission-title').innerHTML = `<i class="fa-solid fa-hourglass-half me-2 text-primary"></i>${t.missionTitle}`;
+            document.getElementById('txt-mission-start-label').innerText = t.missionStartLabel;
+            document.getElementById('txt-mission-end-label').innerText = t.missionEndLabel;
+            document.getElementById('txt-sent-count-label').innerText = t.sentCountLabel;
+            document.getElementById('txt-remaining-count-label').innerText = t.remainingCountLabel;
+            document.getElementById('txt-fixed-interval-label').innerText = t.fixedIntervalLabel;
+            document.getElementById('txt-next-send-label').innerText = t.nextSendLabel;
+
+            // Generic i18n pass for auth screen + other data-i18n tagged elements
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.dataset.i18n;
+                if (t[key] !== undefined) el.innerText = t[key];
+            });
+            document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+                const key = el.dataset.i18nPh;
+                if (t[key] !== undefined) el.placeholder = t[key];
+            });
+            document.getElementById('txt-activation-hint').innerHTML = t.activationHint;
+            if (currentUser) applyRolePermissions();
+
+            updateIntervalPreviewText();
+            renderMissionBar();
+            refreshBuoyDependentTexts();
+        }
+
+        // ===== CUSTOM SEND INTERVAL (Hours / Minutes / Seconds) =====
+        function applyIntervalInputsFromSeconds(totalSeconds) {
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            document.getElementById('intervalHours').value = h;
+            document.getElementById('intervalMinutes').value = m;
+            document.getElementById('intervalSeconds').value = s;
+            updateIntervalPreviewText();
+        }
+
+        function previewInterval() {
+            let h = parseInt(document.getElementById('intervalHours').value, 10); if (isNaN(h) || h < 0) h = 0;
+            let m = parseInt(document.getElementById('intervalMinutes').value, 10); if (isNaN(m) || m < 0) m = 0;
+            let s = parseInt(document.getElementById('intervalSeconds').value, 10); if (isNaN(s) || s < 0) s = 0;
+            if (m > 59) m = 59;
+            if (s > 59) s = 59;
+            let total = h * 3600 + m * 60 + s;
+            if (total <= 0) total = 1; // avoid a zero interval
+
+            pendingState.smsIntervalSeconds = total;
+            updateIntervalPreviewText();
+        }
+
+        function updateIntervalPreviewText() {
+            const t = translations[currentLang()];
+            const totalDurationSec = missionDurationDays * 86400;
+            const totalPossible = Math.floor(totalDurationSec / Math.max(1, pendingState.smsIntervalSeconds));
+            document.getElementById('txt-interval-preview').innerText =
+                t.intervalPreview.replace('{count}', totalPossible).replace('{hms}', formatHMS(pendingState.smsIntervalSeconds));
+        }
+
+        // ===== MISSION TIMER BAR =====
+        function computeMissionStats() {
+            const now = new Date();
+            const totalDurationSec = missionDurationDays * 86400;
+            const elapsedSec = Math.min(Math.max((now - missionStart) / 1000, 0), totalDurationSec);
+            const intervalSec = Math.max(1, appState.smsIntervalSeconds || 900);
+            const totalPossible = Math.floor(totalDurationSec / intervalSec);
+            const sentCount = Math.min(totalPossible, Math.floor(elapsedSec / intervalSec));
+            const remaining = Math.max(0, totalPossible - sentCount);
+            const secSinceLast = elapsedSec % intervalSec;
+            const missionOver = now >= missionEnd;
+            const secToNext = missionOver ? 0 : (intervalSec - secSinceLast);
+            const secToMissionEnd = Math.max(0, (missionEnd - now) / 1000);
+            return { sentCount, remaining, secToNext, secToMissionEnd, totalPossible, missionOver };
+        }
+
+        function renderMissionBar() {
+            const t = translations[currentLang()];
+            const stats = computeMissionStats();
+
+            document.getElementById('val-mission-start').innerText = formatDateTime(missionStart);
+            document.getElementById('val-mission-end').innerText = formatDateTime(missionEnd);
+            document.getElementById('val-sent-count').innerText = stats.sentCount;
+            document.getElementById('val-remaining-count').innerText = stats.remaining;
+            document.getElementById('val-fixed-interval').innerText = formatHMS(appState.smsIntervalSeconds);
+            document.getElementById('val-next-send').innerText = stats.missionOver ? t.missionEnded : formatHMS(stats.secToNext);
+            document.getElementById('val-mission-countdown').innerText = stats.missionOver ? t.missionEnded : formatCountdownWithDays(stats.secToMissionEnd, t.daysUnit);
+        }
+
+        // ===== SMS RECIPIENT PHONE NUMBERS (host only) =====
+        function renderPhoneRows() {
+            const list = document.getElementById('phone-numbers-list');
+            list.innerHTML = '';
+            const isHost = currentUser && currentUser.role === 'host';
+
+            pendingState.smsRecipients.forEach((num, idx) => {
+                const row = document.createElement('div');
+                row.className = 'phone-row';
+                row.innerHTML = `
+                    <input type="text" class="form-control form-control-sm" value="${num}" ${isHost ? '' : 'disabled'} oninput="updatePhoneValue(${idx}, this.value)">
+                    <button class="btn btn-sm btn-outline-danger" ${isHost ? '' : 'disabled'} onclick="removePhoneRow(${idx})"><i class="fa-solid fa-trash"></i></button>
+                `;
+                list.appendChild(row);
+            });
+
+            document.getElementById('btn-add-phone').disabled = !isHost;
+        }
+
+        function updatePhoneValue(idx, value) {
+            pendingState.smsRecipients[idx] = value;
+        }
+
+        function addPhoneRow() {
+            pendingState.smsRecipients.push('');
+            renderPhoneRows();
+        }
+
+        function removePhoneRow(idx) {
+            pendingState.smsRecipients.splice(idx, 1);
+            renderPhoneRows();
+        }
+
+        // ===== ROBOT MASTER POWER SWITCH (host only - sends a command to the buoy) =====
+        function previewRobotPower(checked) {
+            pendingState.robotPower = checked;
+        }
+
+        // ===== RS485 SOCKET TOGGLE (host only - sends a command to the buoy) =====
+        function toggleRs485(checked) {
+            if (!currentUser || currentUser.role !== 'host') {
+                document.getElementById('rs485Toggle').checked = !checked; // revert
+                return;
+            }
+            const b = buoysFleet.find(x => x.id === appState.buoyId);
+            if (!b) return;
+            b.rs485 = checked;
+            const t = translations[currentLang()];
+            document.getElementById('val-rs485-status').innerText = checked ? t.rs485On : t.rs485Off;
+        }
+
+        // ===== AUTH SYSTEM =====
+        function selectRole(role) {
+            document.getElementById('role-btn-host').classList.toggle('active', role === 'host');
+            document.getElementById('role-btn-guest').classList.toggle('active', role === 'guest');
+            document.getElementById('host-panel').style.display = (role === 'host') ? 'block' : 'none';
+            document.getElementById('guest-panel').style.display = (role === 'guest') ? 'block' : 'none';
+            hideAuthError();
+        }
+
+        function setHostMode(mode) {
+            document.getElementById('host-mode-login-btn').classList.toggle('active', mode === 'login');
+            document.getElementById('host-mode-signup-btn').classList.toggle('active', mode === 'signup');
+            document.getElementById('host-login-form').style.display = (mode === 'login') ? 'block' : 'none';
+            document.getElementById('host-signup-form').style.display = (mode === 'signup') ? 'block' : 'none';
+            hideAuthError();
+        }
+
+        function showAuthError(msg) {
+            const el = document.getElementById('auth-error-msg');
+            el.innerText = msg;
+            el.classList.add('show');
+        }
+        function hideAuthError() {
+            document.getElementById('auth-error-msg').classList.remove('show');
+        }
+
+        function enterApp() {
+            document.getElementById('auth-screen').style.display = 'none';
+            document.getElementById('app-shell').style.display = 'block';
+            applyRolePermissions();
+            showSection('recent-data');
+        }
+
+        // Lock/hide every control that sends a command to the buoy when the user is a guest
+        function applyRolePermissions() {
+            const t = translations[currentLang()];
+            const isHost = currentUser.role === 'host';
+            const roleBadge = document.getElementById('user-role-badge');
+            roleBadge.className = 'role-badge ' + (isHost ? 'host' : 'guest');
+            roleBadge.innerText = isHost ? t.roleHost : t.roleGuestObserver;
+
+            // Fleet: add/delete buoy locked for guest
+            document.getElementById('add-buoy-block').style.display = isHost ? 'block' : 'none';
+            document.getElementById('txt-fleet-locked-note').style.display = isHost ? 'none' : 'block';
+
+            // Settings: phone numbers locked for guest
+            document.getElementById('txt-phones-locked-note').style.display = isHost ? 'none' : 'block';
+            document.getElementById('btn-add-phone').disabled = !isHost;
+
+            // Settings: robot power switch locked for guest
+            document.getElementById('robotPowerToggle').disabled = !isHost;
+            document.getElementById('txt-robot-locked-note').style.display = isHost ? 'none' : 'block';
+
+            // Dashboard: RS485 socket switch locked for guest
+            document.getElementById('rs485Toggle').disabled = !isHost;
+            document.getElementById('rs485-lock-icon').style.display = isHost ? 'none' : 'inline-block';
+
+            // Referral code box shown only to hosts
+            document.getElementById('referral-code-block').style.display = isHost ? 'block' : 'none';
+            if (isHost) document.getElementById('val-referral-code').innerText = currentUser.referralCode;
+
+            renderPhoneRows();
+            renderFleetLists();
+        }
+
+
+
+        // ===== SAVE ACTIONS =====
+        function saveSettings() {
+            appState.theme = pendingState.theme;
+            appState.lang = pendingState.lang;
+            appState.smsIntervalSeconds = pendingState.smsIntervalSeconds;
+            appState.connectionMode = pendingState.connectionMode;
+            appState.smsRecipients = [...pendingState.smsRecipients].filter(n => n.trim() !== '');
+            appState.robotPower = pendingState.robotPower;
+            renderMissionBar();
+            updateHistoryMenuState();
+            applyConnectionModeState(appState.connectionMode);
+            renderPhoneRows();
+            flashSaveFeedback('settings-save-feedback');
+        }
+
+        function flashSaveFeedback(elId) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 2200);
+        }
+
+        function hideSaveFeedback(elId) {
+            const el = document.getElementById(elId);
+            if (el) el.classList.remove('show');
+        }
+
+        // ===== INIT =====
+        window.onload = () => {
+            updateCloudSyncStatus();
+            window.addEventListener('online', updateCloudSyncStatus);
+            window.addEventListener('offline', updateCloudSyncStatus);
+
+            // If Supabase kept the user signed in from a previous visit, restore their session.
+            // This works even at app-shell load time with no network: Supabase reads the
+            // saved JWT from localStorage first and only refreshes it in the background.
+            if (supabaseReady && sb) {
+                sb.auth.getSession().then(({ data }) => {
+                    const user = data && data.session ? data.session.user : null;
+                    if (user && !currentUser) {
+                        sb.from('hosts').select('*').eq('id', user.id).single().then(({ data: row }) => {
+                            if (row) {
+                                currentUser = {
+                                    role: 'host', uid: user.id, username: row.username,
+                                    email: row.email, mobile: row.mobile, referralCode: row.referral_code
+                                };
+                                enterApp();
+                            }
+                        });
+                    }
+                });
+            }
+
+            initMap();
+            renderFleetLists();
+            renderQuickSwitcher();
+            applyIntervalInputsFromSeconds(appState.smsIntervalSeconds);
+            applyConnectionModeState(appState.connectionMode);
+            updateHistoryMenuState();
+            document.getElementById('robotPowerToggle').checked = appState.robotPower;
+            renderPhoneRows();
+
+            const initialBuoy = buoysFleet.find(x => x.id === appState.buoyId);
+            updateBatteryIcon(initialBuoy.soc);
+            refreshBuoyDependentTexts();
+
+            renderMissionBar();
+            setInterval(renderMissionBar, 1000);
+
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['10:00', '10:05', '10:10', '10:15', '10:20'],
+                    datasets: [{
+                        label: 'Volts',
+                        data: [12.8, 12.7, 12.6, 12.5, 12.6],
+                        borderColor: '#10b981',
+                        tension: 0.3
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+        };
+    </script>
+
+    <!-- PWA: register service worker for offline app-shell caching -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.warn('Service worker registration failed (this is expected if the file is opened directly instead of served over http/https):', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
